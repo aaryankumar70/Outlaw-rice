@@ -1,0 +1,13 @@
+#!/bin/bash
+
+STATE="$HOME/.cache/capsule-state"
+
+mkdir -p "$HOME/.cache"
+
+if [ "$(cat "$STATE" 2>/dev/null)" = "open" ]; then
+    echo "closed" > "$STATE"
+else
+    echo "open" > "$STATE"
+fi
+
+pkill -SIGUSR2 waybar

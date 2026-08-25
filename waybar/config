@@ -1,0 +1,103 @@
+[
+  {
+    "layer": "top",
+    "position": "top",
+    "height": 34,
+
+    "modules-left": [],
+    "modules-center": [
+      "hyprland/workspaces",
+      "clock",
+      "network",
+      "custom/bluetooth",
+      "pulseaudio",
+      "battery"
+    ],
+    "modules-right": [],
+
+    "hyprland/workspaces": {
+    "format": "{icon}",
+    "format-icons": {
+        "active": "●",
+        "default": "•"
+    },
+    "persistent-workspaces": {
+        "*": 5
+    },
+    "disable-scroll": true,
+    "all-outputs": false
+},
+
+    "clock": {
+      "format": "  {:%H:%M}",
+      "tooltip-format": "{:%A, %d %B %Y}",
+      "on-click": "~/.local/bin/capsule-menu"
+    },
+
+    "network": {
+      "format-wifi": "",
+      "format-ethernet": "󰈀",
+      "format-disconnected": "󰖪",
+      "tooltip-format": "{ifname}: {ipaddr}",
+      "on-click": "wifi-menu"
+    },
+
+    "custom/bluetooth": {
+      "format": "{}",
+      "exec": "bluetoothctl show | grep -q 'Powered: yes' && echo '󰂯' || echo '󰂲'",
+      "interval": 3,
+      "on-click": "bluetooth-menu"
+    },
+
+    "pulseaudio": {
+      "format": "{icon}",
+      "format-muted": "󰝟",
+      "format-icons": {
+        "default": ["", "", ""]
+      },
+      "on-click": "pavucontrol"
+    },
+
+    "battery": {
+      "format": "{icon}",
+      "format-charging": "󰂄",
+      "format-icons": [
+        "󰁺",
+        "󰁻",
+        "󰁼",
+        "󰁽",
+        "󰁾",
+        "󰁿",
+        "󰂀",
+        "󰂁",
+        "󰂂",
+        "󰁹"
+      ]
+    }
+  },
+
+{
+  "layer": "overlay",
+  "position": "top",
+  "height": 1,
+
+  "exclusive": false,
+  "passthrough": false,
+
+  "margin-top": 10,
+
+  "modules-left": [],
+  "modules-center": [
+    "custom/capsule-menu"
+  ],
+  "modules-right": [],
+
+  "custom/capsule-menu": {
+    "exec": "~/.local/bin/capsule-content",
+    "return-type": "json",
+    "interval": 1,
+    "on-click": "~/.local/bin/capsule-menu",
+    "escape": true
+  }
+}
+]

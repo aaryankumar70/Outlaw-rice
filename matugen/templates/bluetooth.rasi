@@ -1,0 +1,109 @@
+* {
+    font: "JetBrainsMono Nerd Font 12";
+
+    bg: {{colors.surface.default.rgba | set_alpha: 0.58}};
+    bg-alt: {{colors.surface_container.default.rgba | set_alpha: 0.72}};
+
+    fg: {{colors.on_surface.default.hex}};
+    fg-dim: {{colors.on_surface_variant.default.hex}};
+
+    accent: {{colors.primary.default.hex}};
+    accent-soft: {{colors.primary.default.rgba | set_alpha: 0.16}};
+
+    border: {{colors.primary.default.rgba | set_alpha: 0.60}};
+    border-soft: {{colors.outline.default.rgba | set_alpha: 0.30}};
+}
+
+window {
+    width: 350px;
+
+    transparency: "real";
+
+    background-color: @bg;
+
+    border: 1px;
+    border-color: @border;
+
+    border-radius: 16px;
+
+    padding: 12px;
+
+    location: north;
+    y-offset: 42px;
+}
+
+mainbox {
+    background-color: transparent;
+
+    children: [
+        inputbar,
+        listview
+    ];
+
+    spacing: 10px;
+}
+
+inputbar {
+    background-color: @bg-alt;
+
+    border: 1px;
+    border-color: @border-soft;
+
+    border-radius: 10px;
+
+    padding: 8px 10px;
+
+    children: [
+        entry
+    ];
+}
+
+entry {
+    background-color: transparent;
+
+    text-color: @fg;
+
+    placeholder: "Bluetooth devices...";
+    placeholder-color: @fg-dim;
+}
+
+listview {
+    background-color: transparent;
+
+    lines: 8;
+    spacing: 3px;
+
+    scrollbar: false;
+}
+
+element {
+    background-color: transparent;
+
+    border-radius: 9px;
+
+    padding: 8px 10px;
+}
+
+element normal {
+    background-color: transparent;
+    text-color: @fg-dim;
+}
+
+element alternate {
+    background-color: transparent;
+    text-color: @fg-dim;
+}
+
+element selected {
+    background-color: @accent-soft;
+
+    border: 1px;
+    border-color: @border;
+
+    text-color: @fg;
+}
+
+element-text {
+    background-color: transparent;
+    text-color: inherit;
+}

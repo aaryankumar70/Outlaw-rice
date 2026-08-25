@@ -1,0 +1,110 @@
+* {
+    font: "JetBrainsMono Nerd Font 12";
+
+    bg: rgba(22, 19, 11, 0.58);
+    bg-alt: rgba(35, 31, 23, 0.72);
+
+    fg: #eae1d4;
+    fg-dim: #d0c5b4;
+
+    accent: #e6c26c;
+    accent-soft: rgba(230, 194, 108, 0.16);
+
+    border: rgba(230, 194, 108, 0.6);
+    border-soft: rgba(153, 144, 128, 0.3);
+}
+
+window {
+    width: 350px;
+
+    transparency: "real";
+
+    background-color: @bg;
+
+    border: 1px;
+    border-color: @border;
+
+    border-radius: 20px;
+
+    padding: 10px;
+     location: north;
+y-offset: 42px;
+}
+
+mainbox {
+    background-color: transparent;
+
+    children: [
+        inputbar,
+        listview
+    ];
+
+    spacing: 12px;
+}
+
+inputbar {
+    background-color: @bg-alt;
+
+    border: 1px;
+    border-color: @border-soft;
+
+    border-radius: 10px;
+
+    padding: 8px 10px;
+
+    children: [
+       
+        entry
+    ];
+}
+
+
+entry {
+    background-color: transparent;
+
+    text-color: @fg;
+
+    placeholder: "Search networks...";
+    placeholder-color: @fg-dim;
+}
+
+listview {
+    background-color: transparent;
+
+    lines: 6;
+    spacing: 2px;
+
+    scrollbar: false;
+}
+
+element {
+    background-color: transparent;
+
+    border-radius: 8px;
+
+    padding: 7px 9px;
+}
+
+element normal {
+    background-color: transparent;
+    text-color: @fg-dim;
+}
+
+element alternate {
+    background-color: transparent;
+    text-color: @fg-dim;
+}
+
+element selected {
+    background-color: @accent-soft;
+
+    border: 1px;
+    border-color: @border;
+
+    text-color: @fg;
+}
+
+element-text {
+    background-color: transparent;
+    text-color: inherit;
+}

@@ -1,0 +1,61 @@
+#!/bin/bash
+
+THEME="$HOME/.config/rofi/wifi.rasi"
+PASSWORD_THEME="$HOME/.config/rofi/wifi-password.rasi"
+
+networks=$(LC_ALL=C nmcli -t -e yes \
+    -f SSID,SIGNAL,SECURITY \
+    device wifi list --rescan yes \
+    | awk -F: '
+        $1 != "" {
+            ssid=$1
+            signal=$2
+            security=$3
+
+            gsub(/\\:/, ":", ssid)
+
+            if (!seen[ssid] || signal > best[ssid]) {
+                seen[ssid]=1
+                best[ssid]=signal
+                sec[ssid]=security
+            }
+        }
+
+        END {
+            for (ssid in best) {
+                lock="󰌾"
+
+                if (sec[ssid] == "--" || sec[ssid] == "") {
+                    lock="󰿆"
+                }
+
+                printf "%03d\t%s\t%s\t%s\n", best[ssid], ssid, best[ssid], lock
+            }
+        }
+    ' \
+    | sort -rn \
+    | cut -f2-)
+
+chosen=$(printf '%s\n' "$networks" \
+    | rofi -dmenu \
+        -i \
+        -p "󰤨" \
+        -theme "$THEME")
+
+[ -z "$chosen" ] && exit 0
+
+ssid=$(printf '%s\n' "$chosen" | awk -F'\t' '{print $1}')
+
+if nmcli connection show | grep -Fqx "$ssid"; then
+    nmcli connection up "$ssid" >/dev/null 2>&1
+    exit 0
+fi
+password=$(rofi -dmenu \
+    -password \
+    -p "󰌾" \
+    -mesg "Connect to  <b>$ssid</b>" \
+    -theme "$PASSWORD_THEME")
+
+[ -z "$password" ] && exit 0
+
+nmcli device wifi connect "$ssid" password "$password"

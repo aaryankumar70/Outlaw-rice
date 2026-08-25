@@ -1,0 +1,45 @@
+#!/bin/bash
+#!/bin/bash
+
+STATE="$HOME/.cache/capsule-state"
+
+state=$(cat "$STATE" 2>/dev/null || echo closed)
+
+time=$(date '+%H:%M')
+
+wifi=$(nmcli -t -f WIFI general 2>/dev/null | head -1)
+
+if [ "$wifi" = "enabled" ]; then
+    wifi_icon=""
+else
+    wifi_icon="󰖪"
+fi
+
+if bluetoothctl show 2>/dev/null | grep -q "Powered: yes"; then
+    bt_icon="󰂯"
+else
+    bt_icon="󰂲"
+fi
+
+battery=$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1)
+
+if [ "$state" = "open" ]; then
+
+text="     
+  Wi-Fi           Audio
+
+󰎆 Spotify        󰉖 Wallpaper
+
+󰆍 Workspaces     󰂯 Bluetooth
+
+󰁹 Battery $battery%
+"
+
+    printf '{"text":"%s","class":"expanded","tooltip":"Control Center"}\n' \
+        "$(echo "$text" | sed ':a;N;$!ba;s/\n/\\n/g')"
+
+else
+
+    printf '{"text":"","class":"collapsed","tooltip":""}\n'
+
+fi

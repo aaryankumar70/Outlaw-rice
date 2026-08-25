@@ -1,0 +1,164 @@
+#!/bin/bash
+
+THEME="$HOME/.config/rofi/bluetooth.rasi"
+
+get_power() {
+    bluetoothctl show | awk '/Powered:/ {print $2}'
+}
+
+get_devices() {
+    bluetoothctl devices | while read -r _ mac name; do
+        [ -z "$mac" ] && continue
+
+        info=$(bluetoothctl info "$mac" 2>/dev/null)
+
+        connected=$(echo "$info" | awk '/Connected:/ {print $2}')
+        paired=$(echo "$info" | awk '/Paired:/ {print $2}')
+
+        if [ "$connected" = "yes" ]; then
+            icon="󰂱"
+            status="Connected"
+        elif [ "$paired" = "yes" ]; then
+            icon="󰂯"
+            status="Paired"
+        else
+            icon="󰂯"
+            status="Available"
+        fi
+
+        printf "%s\t%s\t%s\t%s\n" \
+            "$icon" "$name" "$mac" "$status"
+    done
+}
+
+show_menu() {
+
+    powered=$(get_power)
+
+    if [ "$powered" = "yes" ]; then
+        header="󰂯  Bluetooth    ON"
+        power_action="󰂲  Turn Bluetooth OFF"
+    else
+        header="󰂲  Bluetooth    OFF"
+        power_action="󰂯  Turn Bluetooth ON"
+    fi
+
+    devices=$(get_devices)
+
+    display=$(printf '%s\n' "$devices" |
+        awk -F'\t' '
+        {
+            printf "%s  %s  [%s]\n", $1, $2, $4
+        }')
+
+    printf '%s\n' \
+        "$header" \
+        "$display" \
+        "󰑓  Scan for devices" \
+        "$power_action" |
+        rofi -dmenu \
+            -i \
+            -p "󰂯" \
+            -theme "$THEME"
+}
+
+while true; do
+
+    choice=$(show_menu)
+
+    [ -z "$choice" ] && exit 0
+
+    # Bluetooth OFF
+    if [[ "$choice" == *"Turn Bluetooth OFF"* ]]; then
+        bluetoothctl power off
+        sleep 1
+        continue
+    fi
+
+    # Bluetooth ON
+    if [[ "$choice" == *"Turn Bluetooth ON"* ]]; then
+        bluetoothctl power on
+        sleep 2
+        continue
+    fi
+
+    # Scan
+    if [[ "$choice" == *"Scan for devices"* ]]; then
+
+        bluetoothctl power on >/dev/null
+
+        bluetoothctl agent on >/dev/null 2>&1
+        bluetoothctl default-agent >/dev/null 2>&1
+
+        bluetoothctl scan on >/dev/null 2>&1 &
+
+        sleep 8
+
+        bluetoothctl scan off >/dev/null 2>&1
+
+        # IMPORTANT:
+        # loop back to show_menu()
+        # which now reads the newly discovered devices
+        continue
+    fi
+
+    # Extract selected device name
+    name=$(echo "$choice" |
+        sed -E 's/^[^ ]+[[:space:]]+//' |
+        sed -E 's/[[:space:]]+\[(Connected|Paired|Available)\]$//')
+
+    [ -z "$name" ] && continue
+
+    # Find MAC from current BlueZ device list
+    mac=$(bluetoothctl devices |
+        awk -v target="$name" '
+        {
+            mac=$2
+
+            $1=""
+            $2=""
+
+            sub(/^[ \t]+/, "")
+
+            if ($0 == target) {
+                print mac
+                exit
+            }
+        }')
+
+    [ -z "$mac" ] && continue
+
+    # Check connection state
+    connected=$(bluetoothctl info "$mac" 2>/dev/null |
+        awk '/Connected:/ {print $2}')
+
+    paired=$(bluetoothctl info "$mac" 2>/dev/null |
+        awk '/Paired:/ {print $2}')
+
+    if [ "$connected" = "yes" ]; then
+
+        bluetoothctl disconnect "$mac"
+
+    elif [ "$paired" = "yes" ]; then
+
+        bluetoothctl connect "$mac"
+
+    else
+
+        # New device → pair first
+        bluetoothctl agent on >/dev/null 2>&1
+        bluetoothctl default-agent >/dev/null 2>&1
+
+        bluetoothctl pair "$mac"
+
+        sleep 2
+
+        bluetoothctl trust "$mac" >/dev/null 2>&1
+
+        bluetoothctl connect "$mac"
+    fi
+
+    sleep 2
+
+done
+

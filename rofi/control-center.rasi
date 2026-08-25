@@ -1,0 +1,112 @@
+* {
+    font: "JetBrainsMono Nerd Font 12";
+
+    bg: rgba(22, 19, 11, 0.6);
+    bg-alt: rgba(35, 31, 23, 0.72);
+
+    fg: #eae1d4;
+    fg-dim: #d0c5b4;
+
+    accent: #e6c26c;
+    accent-soft: rgba(230, 194, 108, 0.15);
+
+    border: rgba(230, 194, 108, 0.55);
+    border-soft: rgba(153, 144, 128, 0.28);
+}
+
+window {
+    width: 430px;
+
+    transparency: "real";
+
+    background-color: @bg;
+
+    border: 1px;
+    border-color: @border;
+
+    border-radius: 20px;
+
+    padding: 16px;
+}
+
+mainbox {
+    background-color: transparent;
+
+    children: [
+        inputbar,
+        listview
+    ];
+
+    spacing: 12px;
+}
+
+inputbar {
+    background-color: @bg-alt;
+
+    border: 1px;
+    border-color: @border-soft;
+
+    border-radius: 12px;
+
+    padding: 10px 12px;
+
+    children: [
+        prompt,
+        entry
+    ];
+}
+
+prompt {
+    text-color: @accent;
+    padding: 0px 9px 0px 2px;
+}
+
+entry {
+    background-color: transparent;
+
+    text-color: @fg;
+
+    placeholder: "Control center...";
+    placeholder-color: @fg-dim;
+}
+
+listview {
+    background-color: transparent;
+
+    lines: 8;
+    spacing: 4px;
+
+    scrollbar: false;
+}
+
+element {
+    background-color: transparent;
+
+    border-radius: 10px;
+
+    padding: 11px 13px;
+}
+
+element normal {
+    background-color: transparent;
+    text-color: @fg-dim;
+}
+
+element alternate {
+    background-color: transparent;
+    text-color: @fg-dim;
+}
+
+element selected {
+    background-color: @accent-soft;
+
+    border: 1px;
+    border-color: @border;
+
+    text-color: @fg;
+}
+
+element-text {
+    background-color: transparent;
+    text-color: inherit;
+}

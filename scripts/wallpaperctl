@@ -1,0 +1,64 @@
+#!/bin/bash
+
+WALLPAPER_DIR="$HOME/Pictures/Wallpapers"
+STATE_FILE="$HOME/.cache/current-wallpaper"
+MONITOR="eDP-1"
+
+mkdir -p "$HOME/.cache"
+
+get_wallpapers() {
+    find "$WALLPAPER_DIR" -type f \
+        \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" \) \
+        | sort
+}
+
+set_wallpaper() {
+    local wallpaper="$1"
+
+    [ -z "$wallpaper" ] && exit 1
+
+    echo "$wallpaper" > "$STATE_FILE"
+
+    hyprctl hyprpaper wallpaper "$MONITOR, $wallpaper, cover"
+
+    matugen --source-color-index 0 image "$wallpaper"
+
+
+    
+}
+
+case "$1" in
+
+    next)
+        mapfile -t wallpapers < <(get_wallpapers)
+
+        [ "${#wallpapers[@]}" -eq 0 ] && exit 1
+
+        current="$(cat "$STATE_FILE" 2>/dev/null)"
+
+        for i in "${!wallpapers[@]}"; do
+            if [[ "${wallpapers[$i]}" == "$current" ]]; then
+                next=$(( (i + 1) % ${#wallpapers[@]} ))
+                set_wallpaper "${wallpapers[$next]}"
+                exit
+            fi
+        done
+
+        set_wallpaper "${wallpapers[0]}"
+        ;;
+
+    random)
+        mapfile -t wallpapers < <(get_wallpapers)
+
+        [ "${#wallpapers[@]}" -eq 0 ] && exit 1
+
+        wallpaper="${wallpapers[RANDOM % ${#wallpapers[@]}]}"
+
+        set_wallpaper "$wallpaper"
+        ;;
+
+    *)
+        echo "Usage: wallpaperctl {next|random}"
+        ;;
+
+esac
