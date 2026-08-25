@@ -1,7 +1,7 @@
-@define-color background #1a1111;
-@define-color background_alt #271d1d;
-@define-color foreground #f0dede;
-@define-color accent #ffb3b3;
-@define-color accent_alt #e6bdbc;
-@define-color border #a08c8c;
+@define-color background #121318;
+@define-color background_alt #1e1f25;
+@define-color foreground #e2e2e9;
+@define-color accent #afc6ff;
+@define-color accent_alt #bfc6dc;
+@define-color border #8f9099;
 @define-color error #ffb4ab;

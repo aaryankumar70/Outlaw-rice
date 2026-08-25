@@ -21,7 +21,7 @@ set_wallpaper() {
 
     hyprctl hyprpaper wallpaper "$MONITOR, $wallpaper, cover"
 
-    matugen --source-color-index 0 image "$wallpaper"
+    matugen --config "$HOME/outlaw-rice/matugen/config.toml" --source-color-index 0 image "$wallpaper"
 
 
     

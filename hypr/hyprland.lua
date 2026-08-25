@@ -20,7 +20,7 @@ hl.monitor({
 
 local terminal    = "kitty"
 local fileManager = "dolphin"
-local menu         = "rofi -show drun"
+local menu         = "rofi -show drun -show-icons -theme ~/.config/rofi/drun.rasi"
 
 
 -------------------
@@ -79,24 +79,33 @@ hl.config({
     },
 
     decoration = {
-        rounding       = 10,
+        rounding       = 14,
         rounding_power = 2,
 
-        active_opacity   = 1.0,
-        inactive_opacity = 1.0,
+        -- Translucency lets the wallpaper and blur carry through every tiled
+        -- window, while keeping focused content comfortably readable.
+        active_opacity     = 0.92,
+        inactive_opacity   = 0.84,
+        fullscreen_opacity = 1.0,
+
+        dim_inactive = true,
+        dim_strength = 0.08,
 
         shadow = {
             enabled      = true,
-            range        = 4,
-            render_power = 3,
-            color        = 0xee1a1a1a,
+            range        = 18,
+            render_power = 4,
+            color        = 0x99101010,
+            color_inactive = 0x66101010,
         },
 
         blur = {
             enabled   = true,
-            size      = 3,
-            passes    = 1,
-            vibrancy  = 0.1696,
+            size           = 8,
+            passes         = 3,
+            ignore_opacity = false,
+            vibrancy       = 0.22,
+            vibrancy_darkness = 0.12,
         },
     },
 
@@ -184,24 +193,24 @@ hl.animation({
 hl.animation({
     leaf = "windows",
     enabled = true,
-    speed = 4.79,
+    speed = 3.6,
     spring = "easy"
 })
 
 hl.animation({
     leaf = "windowsIn",
     enabled = true,
-    speed = 4.1,
+    speed = 3.4,
     spring = "easy",
-    style = "popin 87%"
+    style = "popin 92%"
 })
 
 hl.animation({
     leaf = "windowsOut",
     enabled = true,
-    speed = 1.49,
-    bezier = "linear",
-    style = "popin 87%"
+    speed = 2.8,
+    bezier = "easeOutQuint",
+    style = "popin 92%"
 })
 
 hl.animation({
@@ -739,4 +748,15 @@ hl.window_rule({
     move = "20 monitor_h-120",
 
     float = true,
+})
+
+-- Rofi is a layer surface, so give its translucent launcher the same glass
+-- treatment as ordinary windows without touching the control-center logic.
+hl.layer_rule({
+    name = "rofi-glass",
+    match = {
+        namespace = "rofi",
+    },
+    blur = true,
+    ignore_alpha = 0.15,
 })

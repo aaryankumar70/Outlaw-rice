@@ -1,0 +1,93 @@
+* {
+    font: "JetBrainsMono Nerd Font 13";
+
+    bg: {{colors.surface.default.rgba | set_alpha: 0.72}};
+    bg-alt: {{colors.surface_container.default.rgba | set_alpha: 0.78}};
+    fg: {{colors.on_surface.default.hex}};
+    fg-dim: {{colors.on_surface_variant.default.hex}};
+    accent: {{colors.primary.default.hex}};
+    accent-soft: {{colors.primary.default.rgba | set_alpha: 0.20}};
+    border: {{colors.primary.default.rgba | set_alpha: 0.70}};
+    border-soft: {{colors.outline.default.rgba | set_alpha: 0.32}};
+}
+
+window {
+    width: 720px;
+    transparency: "real";
+    background-color: @bg;
+    border: 1px;
+    border-color: @border;
+    border-radius: 24px;
+    padding: 18px;
+    location: center;
+}
+
+mainbox {
+    background-color: transparent;
+    children: [ inputbar, listview ];
+    spacing: 16px;
+}
+
+inputbar {
+    background-color: @bg-alt;
+    border: 1px;
+    border-color: @border-soft;
+    border-radius: 15px;
+    padding: 13px 16px;
+    children: [ prompt, entry ];
+}
+
+prompt {
+    text-color: @accent;
+    padding: 0px 12px 0px 2px;
+}
+
+entry {
+    background-color: transparent;
+    text-color: @fg;
+    placeholder: "Search applications...";
+    placeholder-color: @fg-dim;
+}
+
+listview {
+    background-color: transparent;
+    columns: 4;
+    lines: 3;
+    spacing: 10px;
+    scrollbar: false;
+    fixed-height: false;
+}
+
+element {
+    orientation: vertical;
+    background-color: transparent;
+    border-radius: 16px;
+    padding: 13px 10px;
+    spacing: 8px;
+}
+
+element normal, element alternate {
+    background-color: transparent;
+    text-color: @fg-dim;
+}
+
+element selected {
+    background-color: @accent-soft;
+    border: 1px;
+    border-color: @border;
+    text-color: @fg;
+}
+
+element-icon {
+    background-color: transparent;
+    size: 52px;
+    horizontal-align: 0.5;
+    vertical-align: 0.5;
+}
+
+element-text {
+    background-color: transparent;
+    text-color: inherit;
+    horizontal-align: 0.5;
+    vertical-align: 0.5;
+}
