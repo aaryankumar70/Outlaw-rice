@@ -15,7 +15,7 @@
 }
 
 window {
-    width: 430px;
+    width: 400px;
 
     transparency: "real";
 

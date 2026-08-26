@@ -1,5 +1,4 @@
 #!/bin/bash
-#!/bin/bash
 
 STATE="$HOME/.cache/capsule-state"
 
@@ -25,15 +24,15 @@ battery=$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1)
 
 if [ "$state" = "open" ]; then
 
-text="     
-  Wi-Fi           Audio
+track=$(playerctl metadata --format '{{artist}} — {{title}}' 2>/dev/null | head -c 38)
+[ -z "$track" ] && track="No music playing"
 
-󰎆 Spotify        󰉖 Wallpaper
+text="  󰍹  CONTROL CENTER
 
-󰆍 Workspaces     󰂯 Bluetooth
+  Wi-Fi       󰂯  Bluetooth         Audio
+󰉖  Wallpaper   󰎆  Music           󰁹  Battery ${battery:-N/A}%
 
-󰁹 Battery $battery%
-"
+󰝚  $track"
 
     printf '{"text":"%s","class":"expanded","tooltip":"Control Center"}\n' \
         "$(echo "$text" | sed ':a;N;$!ba;s/\n/\\n/g')"

@@ -8,6 +8,7 @@
     "modules-center": [
       "hyprland/workspaces",
       "clock",
+      "custom/music",
       "network",
       "custom/bluetooth",
       "pulseaudio",
@@ -32,6 +33,14 @@
       "format": "  {:%H:%M}",
       "tooltip-format": "{:%A, %d %B %Y}",
       "on-click": "~/.local/bin/capsule-menu"
+    },
+
+    "custom/music": {
+      "exec": "~/.local/bin/music-visualizer",
+      "return-type": "json",
+      "interval": 1,
+      "on-click": "playerctl play-pause",
+      "on-click-right": "playerctl next"
     },
 
     "network": {
@@ -96,7 +105,7 @@
     "exec": "~/.local/bin/capsule-content",
     "return-type": "json",
     "interval": 1,
-    "on-click": "~/.local/bin/capsule-menu",
+    "on-click": "~/.local/bin/control-center",
     "escape": true
   }
 }

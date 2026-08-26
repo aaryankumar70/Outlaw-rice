@@ -48,6 +48,7 @@ window#waybar {
 
 #workspaces,
 #clock,
+#custom-music,
 #network,
 #custom-bluetooth,
 #pulseaudio,
@@ -108,6 +109,25 @@ window#waybar {
     font-weight: 700;
 }
 
+/* A small now-playing pulse: it stays quiet when there is no player. */
+#custom-music {
+    margin: 5px 2px;
+    padding: 0 10px;
+
+    color: alpha(@foreground, 0.52);
+    border-left: 1px solid alpha(@foreground, 0.12);
+    border-right: 1px solid alpha(@foreground, 0.12);
+}
+
+#custom-music.playing {
+    color: @accent;
+    text-shadow: 0 0 8px alpha(@accent, 0.35);
+}
+
+#custom-music.paused {
+    color: alpha(@foreground, 0.42);
+}
+
 
 /* =========================================================
    SYSTEM ICONS
@@ -138,6 +158,7 @@ window#waybar {
    ========================================================= */
 
 #clock:hover,
+#custom-music:hover,
 #network:hover,
 #custom-bluetooth:hover,
 #pulseaudio:hover,

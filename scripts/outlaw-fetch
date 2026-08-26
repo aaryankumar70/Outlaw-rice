@@ -1,0 +1,12 @@
+#!/bin/bash
+# Lightweight terminal landing page.  Replace kitty-art.png later for a
+# personal mascot without introducing an ASCII-art package dependency.
+if command -v fastfetch >/dev/null 2>&1; then
+    fastfetch
+else
+    printf '\033[1;38;5;117m  OUTLAW // %s\033[0m\n\n' "$(hostname)"
+    printf '  OS       %s\n' "$(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-Linux}")"
+    printf '  Kernel   %s\n' "$(uname -r)"
+    printf '  Uptime   %s\n' "$(uptime -p 2>/dev/null | sed 's/^up //')"
+    printf '  Theme    Matugen / active wallpaper\n'
+fi

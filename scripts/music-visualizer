@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# Compact playerctl metadata for Waybar.  The full CAVA spectrum lives in the
+# dedicated music panel (Super+Shift+M), which avoids spawning CAVA per bar
+# refresh.
+status=$(playerctl status 2>/dev/null)
+track=$(playerctl metadata --format '{{artist}} — {{title}}' 2>/dev/null | head -c 56)
+
+case "$status" in
+    Playing)
+        frames=("▁▃▅▇▅▃▁" "▃▆█▅▇▃▅" "▅▁▆█▃▇▁" "█▅▃▆▁▅█")
+        frame=${frames[$(( $(date +%s) % ${#frames[@]} ))]}
+        printf '{"text":"󰎈  %s","class":"playing","tooltip":"%s\\nLeft click: play/pause • Right click: next • Super+Shift+M: CAVA"}\n' "$frame" "${track:-Now playing}"
+        ;;
+    Paused)
+        printf '%s\n' '{"text":"󰎈  ▂▂▂▂▂▂▂","class":"paused","tooltip":"Paused — left click to resume"}'
+        ;;
+    *)
+        printf '%s\n' '{"text":"","class":"idle","tooltip":"No media player"}'
+        ;;
+esac

@@ -1,8 +1,8 @@
 * {
     font: "JetBrainsMono Nerd Font 12";
 
-    bg: {{colors.surface.default.rgba | set_alpha: 0.58}};
-    bg-alt: {{colors.surface_container.default.rgba | set_alpha: 0.72}};
+    bg: {{colors.surface.default.rgba | set_alpha: 0.70}};
+    bg-alt: {{colors.surface_container.default.rgba | set_alpha: 0.82}};
 
     fg: {{colors.on_surface.default.hex}};
     fg-dim: {{colors.on_surface_variant.default.hex}};
@@ -15,7 +15,7 @@
 }
 
 window {
-    width: 350px;
+    width: 340px;
 
     transparency: "real";
 
@@ -24,12 +24,12 @@ window {
     border: 1px;
     border-color: @border;
 
-    border-radius: 16px;
+    border-radius: 17px;
 
-    padding: 12px;
+    padding: 9px;
 
     location: north;
-    y-offset: 42px;
+    y-offset: 44px;
 }
 
 mainbox {
@@ -40,7 +40,7 @@ mainbox {
         listview
     ];
 
-    spacing: 10px;
+    spacing: 7px;
 }
 
 inputbar {
@@ -71,7 +71,7 @@ listview {
     background-color: transparent;
 
     lines: 8;
-    spacing: 3px;
+    spacing: 2px;
 
     scrollbar: false;
 }
@@ -79,9 +79,9 @@ listview {
 element {
     background-color: transparent;
 
-    border-radius: 9px;
+    border-radius: 8px;
 
-    padding: 8px 10px;
+    padding: 7px 9px;
 }
 
 element normal {

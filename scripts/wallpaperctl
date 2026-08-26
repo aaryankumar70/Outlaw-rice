@@ -18,8 +18,23 @@ set_wallpaper() {
     [ -z "$wallpaper" ] && exit 1
 
     echo "$wallpaper" > "$STATE_FILE"
+    # hyprlock needs an image path, not the text state file.  Keep a stable
+    # cache symlink so it always opens on the currently selected wallpaper.
+    ln -sfn "$wallpaper" "$HOME/.cache/current-wallpaper-image"
 
-    hyprctl hyprpaper wallpaper "$MONITOR, $wallpaper, cover"
+    # swww supplies the reference-style corner reveal.  Do not start it here:
+    # Hyprland starts exactly one wallpaper daemon at login.  The fallback
+    # retains the user's established hyprpaper workflow.
+    if command -v swww >/dev/null 2>&1 && swww query >/dev/null 2>&1; then
+        swww img "$wallpaper" \
+            --transition-type wipe \
+            --transition-angle 45 \
+            --transition-pos 0,0 \
+            --transition-duration 1.05 \
+            --transition-fps 60
+    else
+        hyprctl hyprpaper wallpaper "$MONITOR, $wallpaper, cover"
+    fi
 
     matugen --config "$HOME/outlaw-rice/matugen/config.toml" --source-color-index 0 image "$wallpaper"
 
@@ -28,6 +43,10 @@ set_wallpaper() {
 }
 
 case "$1" in
+
+    set)
+        [ -f "$2" ] && set_wallpaper "$2"
+        ;;
 
     next)
         mapfile -t wallpapers < <(get_wallpapers)
@@ -58,7 +77,7 @@ case "$1" in
         ;;
 
     *)
-        echo "Usage: wallpaperctl {next|random}"
+        echo "Usage: wallpaperctl {set <file>|next|random}"
         ;;
 
 esac

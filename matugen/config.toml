@@ -26,6 +26,14 @@ output_path = "~/.config/rofi/wifi-password.rasi"
 input_path = "~/outlaw-rice/matugen/templates/drun.rasi"
 output_path = "~/.config/rofi/drun.rasi"
 
+[templates.wallpaper]
+input_path = "~/outlaw-rice/matugen/templates/wallpaper.rasi"
+output_path = "~/.config/rofi/wallpaper.rasi"
+
 [templates.kitty]
 input_path = "~/outlaw-rice/matugen/templates/kitty.conf"
 output_path = "~/.config/kitty/theme.conf"
+
+[templates.hyprlock]
+input_path = "~/outlaw-rice/matugen/templates/hyprlock-colors.conf"
+output_path = "~/.config/hypr/hyprlock-colors.conf"

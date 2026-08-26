@@ -1,0 +1,9 @@
+#!/bin/bash
+# A purposeful, floating CAVA panel.  CAVA is started only on demand so it
+# never competes with Waybar or consumes audio input in the background.
+exec kitty \
+    --class=outlaw-music-panel \
+    --title="Outlaw Music" \
+    --override=initial_window_width=86c \
+    --override=initial_window_height=24c \
+    sh -lc 'printf "\\e[1;38;5;117m  OUTLAW // NOW PLAYING\\e[0m\\n\\n"; playerctl metadata --format "  {{artist}} — {{title}}\\n  {{album}}\\n" 2>/dev/null || printf "  No active player — start playback, then reopen this panel.\\n"; printf "\\n"; cava'

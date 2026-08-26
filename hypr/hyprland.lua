@@ -29,7 +29,10 @@ local menu         = "rofi -show drun -show-icons -theme ~/.config/rofi/drun.ras
 
 hl.on("hyprland.start", function ()
     hl.exec_cmd("waybar")
-    hl.exec_cmd("hyprpaper")
+    -- One wallpaper backend at a time.  swww is optional; hyprpaper remains
+    -- the known-good fallback until swww is deliberately installed.
+    hl.exec_cmd("sh -lc 'if command -v swww >/dev/null 2>&1; then pgrep -x swww-daemon >/dev/null || swww-daemon --format xrgb; else pgrep -x hyprpaper >/dev/null || hyprpaper; fi'")
+    hl.exec_cmd("sh -lc 'pgrep -x hypridle >/dev/null || hypridle'")
     hl.exec_cmd("sleep 1 && wallpaperctl random")
 end)
 
@@ -465,6 +468,18 @@ hl.bind(mainMod .. " + A",
 -- Wi-Fi
 hl.bind(mainMod .. " + W",
     hl.dsp.exec_cmd("setsid -f wifi-menu >/dev/null 2>&1"))
+
+-- Visual wallpaper picker: the launcher shows the images themselves.
+hl.bind(mainMod .. " + SHIFT + W",
+    hl.dsp.exec_cmd("setsid -f ~/.local/bin/wallpaper-menu >/dev/null 2>&1"))
+
+-- Wuthering Waves-inspired lock screen.
+hl.bind(mainMod .. " + L",
+    hl.dsp.exec_cmd("hyprlock"))
+
+-- Dedicated CAVA surface; the Waybar module continues to expose metadata.
+hl.bind(mainMod .. " + SHIFT + M",
+    hl.dsp.exec_cmd("setsid -f ~/outlaw-rice/scripts/music-panel >/dev/null 2>&1"))
 
 -- Bluetooth
 hl.bind(mainMod .. " + B",

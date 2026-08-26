@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# Show a terminal image using Kitty's native graphics protocol. Put an image
+# at ~/.config/kitty/art.png to use a dedicated character/mascot; otherwise
+# the active wallpaper is used as a safe fallback.
+image="$HOME/outlaw-rice/assets/psyduck.png"
+[ -f "$image" ] || image=$(cat "$HOME/.cache/current-wallpaper" 2>/dev/null)
+
+[ -f "$image" ] || exit 1
+kitty +kitten icat --align left --place 48x20@0x0 "$image"
