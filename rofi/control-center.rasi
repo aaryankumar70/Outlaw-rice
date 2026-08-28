@@ -15,7 +15,7 @@
 }
 
 window {
-    width: 400px;
+    width: 300px;
 
     transparency: "real";
 
@@ -51,15 +51,11 @@ inputbar {
     padding: 10px 12px;
 
     children: [
-        prompt,
+       
         entry
     ];
 }
 
-prompt {
-    text-color: @accent;
-    padding: 0px 9px 0px 2px;
-}
 
 entry {
     background-color: transparent;

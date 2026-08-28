@@ -27,12 +27,17 @@ if [ "$state" = "open" ]; then
 track=$(playerctl metadata --format '{{artist}} — {{title}}' 2>/dev/null | head -c 38)
 [ -z "$track" ] && track="No music playing"
 
-text="  󰍹  CONTROL CENTER
+text="          󰍹  CONTROL CENTER
+ 
+󰎆  Music          
+󰁹  Battery ${battery:-N/A}%
 
-  Wi-Fi       󰂯  Bluetooth         Audio
-󰉖  Wallpaper   󰎆  Music           󰁹  Battery ${battery:-N/A}%
+󰝚  $track
 
-󰝚  $track"
+
+
+
+"
 
     printf '{"text":"%s","class":"expanded","tooltip":"Control Center"}\n' \
         "$(echo "$text" | sed ':a;N;$!ba;s/\n/\\n/g')"

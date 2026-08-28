@@ -170,7 +170,7 @@ window#waybar {
    ========================================================= */
 
 #custom-capsule-menu {
-    min-width: 265px;
+    min-width: 240px;
 
     margin: 0;
     padding:5px 9px;
