@@ -105,7 +105,7 @@
     "exec": "~/.local/bin/capsule-content",
     "return-type": "json",
     "interval": 1,
-    "on-click": "~/.local/bin/control-center",
+    "on-click": "",
     "escape": true
   }
 }

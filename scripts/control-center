@@ -1,3 +1,0 @@
-#!/bin/bash
-# Purpose-built dashboard; Rofi remains reserved for concise device lists.
-exec "$HOME/outlaw-rice/scripts/control-dashboard.py"
