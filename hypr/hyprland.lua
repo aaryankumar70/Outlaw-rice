@@ -440,6 +440,14 @@ hl.bind(
     })
 )
 
+-- Fullscreen focused window
+hl.bind(
+    mainMod .. " + F",
+    hl.dsp.window.fullscreen({
+        action = "toggle"
+    })
+)
+
 
 -- Application launcher
 hl.bind(
