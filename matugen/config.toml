@@ -14,9 +14,6 @@ output_path = "~/.config/rofi/wifi.rasi"
 input_path = "~/outlaw-rice/matugen/templates/bluetooth.rasi"
 output_path = "~/.config/rofi/bluetooth.rasi"
 
-[templates.control-center]
-input_path = "~/outlaw-rice/matugen/templates/control-center.rasi"
-output_path = "~/.config/rofi/control-center.rasi"
 
 [templates.wifi-password]
 input_path = "~/outlaw-rice/matugen/templates/wifi-password.rasi"
