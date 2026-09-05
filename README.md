@@ -1,2 +1,2 @@
 ### WORK IN PROGRESS 
-Rice is Undercooked currently 
+Rice is cooking  currently 
