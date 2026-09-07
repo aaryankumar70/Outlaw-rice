@@ -1,0 +1,1220 @@
+#!/usr/bin/env python3
+
+import subprocess
+import re
+import math
+from pathlib import Path
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+
+from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
+
+
+# ------------------------------------------------------------
+# Paths
+# ------------------------------------------------------------
+
+ROOT = Path.home() / "Pictures" / "Wallpapers"
+CTL = Path.home() / "outlaw-rice" / "scripts" / "wallpaperctl"
+
+EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+}
+
+
+# ------------------------------------------------------------
+# Window
+# ------------------------------------------------------------
+
+WINDOW_W = 900
+WINDOW_H = 300
+
+
+# ------------------------------------------------------------
+# CSS
+# ------------------------------------------------------------
+
+CSS = b"""
+window {
+    background-color: rgba(8, 9, 15, 0.58);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+}
+
+#search {
+    background-color: rgba(10, 11, 18, 0.48);
+    color: #f5f4ff;
+
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 8px;
+
+    padding: 8px 12px;
+
+    font-size: 11px;
+}
+
+#search:focus {
+    border-color: rgba(197, 167, 255, 0.72);
+
+    box-shadow:
+        0 0 10px rgba(197, 167, 255, 0.18);
+}
+
+
+/* ---------------------------------------------------------
+   Wallpaper cards
+   --------------------------------------------------------- */
+
+#card {
+    background-color: rgba(12, 13, 20, 0.18);
+
+    border: 1px solid rgba(255, 255, 255, 0.13);
+
+    border-radius: 7px;
+}
+
+
+#card-selected {
+    background-color: rgba(197, 167, 255, 0.08);
+
+    border: 2px solid rgba(197, 167, 255, 0.96);
+
+    border-radius: 7px;
+
+    box-shadow:
+        0 0 6px rgba(197, 167, 255, 0.95),
+        0 0 14px rgba(197, 167, 255, 0.62),
+        0 0 28px rgba(197, 167, 255, 0.32);
+}
+
+
+/* ---------------------------------------------------------
+   Circular arrows
+   --------------------------------------------------------- */
+
+#arrow {
+    background-color: rgba(10, 11, 18, 0.52);
+
+    color: rgba(255, 255, 255, 0.82);
+
+    border: 1px solid rgba(255, 255, 255, 0.16);
+
+    border-radius: 999px;
+
+    min-width: 40px;
+    min-height: 40px;
+
+    padding: 0;
+
+    font-size: 23px;
+    font-weight: 500;
+
+    box-shadow:
+        0 0 8px rgba(0, 0, 0, 0.25);
+}
+
+
+#arrow:hover {
+    background-color: rgba(197, 167, 255, 0.15);
+
+    color: #ffffff;
+
+    border-color: rgba(197, 167, 255, 0.75);
+
+    box-shadow:
+        0 0 8px rgba(197, 167, 255, 0.42),
+        0 0 18px rgba(197, 167, 255, 0.20);
+}
+
+
+#arrow:active {
+    background-color: rgba(197, 167, 255, 0.28);
+
+    box-shadow:
+        0 0 6px rgba(197, 167, 255, 0.60);
+}
+
+
+#empty {
+    color: rgba(255, 255, 255, 0.50);
+
+    font-size: 11px;
+}
+"""
+
+
+# ------------------------------------------------------------
+# Matugen colours
+# ------------------------------------------------------------
+
+def palette_css():
+    css = CSS
+
+    try:
+        colors_file = (
+            Path.home()
+            / ".config"
+            / "waybar"
+            / "colors.css"
+        )
+
+        text = colors_file.read_text()
+
+        colors = dict(
+            re.findall(
+                r"@define-color\s+(\w+)\s+(#[0-9a-fA-F]{6});",
+                text
+            )
+        )
+
+        accent = colors.get(
+            "accent",
+            "#c5a7ff"
+        )
+
+        foreground = colors.get(
+            "foreground",
+            "#f5f4ff"
+        )
+
+        css = css.replace(
+            b"#f5f4ff",
+            foreground.encode()
+        )
+
+        css = css.replace(
+            b"#c5a7ff",
+            accent.encode()
+        )
+
+    except Exception:
+        pass
+
+    return css
+
+
+# ------------------------------------------------------------
+# Wallpaper card
+# ------------------------------------------------------------
+
+class WallpaperCard:
+
+    def __init__(self, path, callback):
+
+        self.path = path
+
+        self.event = Gtk.EventBox()
+
+        self.event.set_name("card")
+
+        self.image = Gtk.Image()
+
+        self.event.add(self.image)
+
+        self.event.connect(
+            "button-press-event",
+            callback,
+            path
+        )
+
+        self.original = None
+
+        try:
+            self.original = GdkPixbuf.Pixbuf.new_from_file(
+                str(path)
+            )
+
+        except Exception:
+            pass
+
+
+    def set_geometry(
+        self,
+        x,
+        y,
+        width,
+        height,
+        selected=False
+    ):
+
+        width = max(
+            60,
+            int(width)
+        )
+
+        height = max(
+            45,
+            int(height)
+        )
+
+        self.event.set_size_request(
+            width,
+            height
+        )
+
+        if selected:
+            self.event.set_name(
+                "card-selected"
+            )
+
+        else:
+            self.event.set_name(
+                "card"
+            )
+
+        if self.original is None:
+            return
+
+        # ----------------------------------------------------
+        # Crop image to the card's aspect ratio.
+        # This prevents wallpapers from being crushed.
+        # ----------------------------------------------------
+
+        target_w = max(
+            1,
+            width - 4
+        )
+
+        target_h = max(
+            1,
+            height - 4
+        )
+
+        source_w = self.original.get_width()
+        source_h = self.original.get_height()
+
+        source_ratio = (
+            source_w / source_h
+        )
+
+        target_ratio = (
+            target_w / target_h
+        )
+
+        if source_ratio > target_ratio:
+
+            crop_w = int(
+                source_h * target_ratio
+            )
+
+            crop_x = (
+                source_w - crop_w
+            ) // 2
+
+            cropped = self.original.new_subpixbuf(
+                crop_x,
+                0,
+                crop_w,
+                source_h
+            )
+
+        else:
+
+            crop_h = int(
+                source_w / target_ratio
+            )
+
+            crop_y = (
+                source_h - crop_h
+            ) // 2
+
+            cropped = self.original.new_subpixbuf(
+                0,
+                crop_y,
+                source_w,
+                crop_h
+            )
+
+        scaled = cropped.scale_simple(
+            target_w,
+            target_h,
+            GdkPixbuf.InterpType.BILINEAR
+        )
+
+        if scaled:
+
+            self.image.set_from_pixbuf(
+                scaled
+            )
+
+
+# ------------------------------------------------------------
+# Picker
+# ------------------------------------------------------------
+
+class Picker(Gtk.Window):
+
+    def __init__(self):
+
+        super().__init__(
+            type=Gtk.WindowType.TOPLEVEL
+        )
+
+        self.set_title(
+            "Wallpaper Picker"
+        )
+
+        self.set_decorated(False)
+
+        self.set_keep_above(True)
+
+        self.set_skip_taskbar_hint(True)
+
+        self.set_type_hint(
+            Gdk.WindowTypeHint.NORMAL
+        )
+
+        self.set_default_size(
+            WINDOW_W,
+            WINDOW_H
+        )
+
+        self.set_resizable(False)
+
+        # ----------------------------------------------------
+        # Transparent window surface
+        # ----------------------------------------------------
+
+        screen = self.get_screen()
+
+        visual = screen.get_rgba_visual()
+
+        if visual is not None:
+            self.set_visual(visual)
+
+        self.set_app_paintable(True)
+
+        self.connect(
+            "key-press-event",
+            self.key
+        )
+
+        # ----------------------------------------------------
+        # Wallpapers
+        # ----------------------------------------------------
+
+        self.files = sorted(
+            path
+            for path in ROOT.glob("**/*")
+            if path.is_file()
+            and path.suffix.lower() in EXTENSIONS
+        )
+
+        self.visible = self.files[:]
+
+        self.selected = 0
+
+        # ----------------------------------------------------
+        # Animation state
+        # ----------------------------------------------------
+
+        self.animating = False
+
+        self.animation_start = 0
+
+        self.animation_direction = 0
+
+        self.animation_duration = 260
+
+        self.animation_cards = []
+
+        # ----------------------------------------------------
+        # CSS
+        # ----------------------------------------------------
+
+        provider = Gtk.CssProvider()
+
+        provider.load_from_data(
+            palette_css()
+        )
+
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(),
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+        # ----------------------------------------------------
+        # UI
+        # ----------------------------------------------------
+
+        self.build_ui()
+
+        self.position_center()
+
+        self.render()
+
+
+    # ========================================================
+    # UI
+    # ========================================================
+
+    def build_ui(self):
+
+        outer = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=10
+        )
+
+        outer.set_margin_top(15)
+
+        outer.set_margin_bottom(14)
+
+        outer.set_margin_start(16)
+
+        outer.set_margin_end(16)
+
+        self.add(outer)
+
+        # ----------------------------------------------------
+        # Search
+        # ----------------------------------------------------
+
+        self.search = Gtk.Entry()
+
+        self.search.set_name(
+            "search"
+        )
+
+        self.search.set_placeholder_text(
+            "⌕   Search wallpapers"
+        )
+
+        self.search.connect(
+            "changed",
+            self.filter
+        )
+
+        outer.pack_start(
+            self.search,
+            False,
+            False,
+            0
+        )
+
+        # ----------------------------------------------------
+        # Carousel row
+        # ----------------------------------------------------
+
+        carousel_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8
+        )
+
+        # ----------------------------------------------------
+        # Left circular button
+        # ----------------------------------------------------
+
+        self.left_button = Gtk.Button(
+            label="‹"
+        )
+
+        self.left_button.set_name(
+            "arrow"
+        )
+
+        self.left_button.set_size_request(
+            40,
+            40
+        )
+
+        self.left_button.set_relief(
+            Gtk.ReliefStyle.NONE
+        )
+
+        self.left_button.connect(
+            "clicked",
+            lambda *_:
+            self.move_selection(-1)
+        )
+
+        carousel_row.pack_start(
+            self.left_button,
+            False,
+            False,
+            0
+        )
+
+        # ----------------------------------------------------
+        # Actual carousel
+        # ----------------------------------------------------
+
+        self.carousel = Gtk.Fixed()
+
+        carousel_row.pack_start(
+            self.carousel,
+            True,
+            True,
+            0
+        )
+
+        # ----------------------------------------------------
+        # Right circular button
+        # ----------------------------------------------------
+
+        self.right_button = Gtk.Button(
+            label="›"
+        )
+
+        self.right_button.set_name(
+            "arrow"
+        )
+
+        self.right_button.set_size_request(
+            40,
+            40
+        )
+
+        self.right_button.set_relief(
+            Gtk.ReliefStyle.NONE
+        )
+
+        self.right_button.connect(
+            "clicked",
+            lambda *_:
+            self.move_selection(1)
+        )
+
+        carousel_row.pack_end(
+            self.right_button,
+            False,
+            False,
+            0
+        )
+
+        outer.pack_start(
+            carousel_row,
+            True,
+            True,
+            0
+        )
+
+
+    # ========================================================
+    # Window position
+    # ========================================================
+
+    def position_center(self):
+
+        screen = self.get_screen()
+
+        monitor = screen.get_primary_monitor()
+
+        geometry = screen.get_monitor_geometry(
+            monitor
+        )
+
+        x = (
+            geometry.x
+            + (geometry.width - WINDOW_W) // 2
+        )
+
+        y = (
+            geometry.y
+            + (geometry.height - WINDOW_H) // 2
+        )
+
+        self.move(
+            x,
+            y
+        )
+
+
+    # ========================================================
+    # Carousel slot geometry
+    # ========================================================
+
+    def slot_geometry(self, slot):
+
+        """
+        Slot layout:
+
+              -2       -1        0        +1       +2
+
+             small   medium    LARGE    medium    small
+        """
+
+        slots = {
+
+            -2: (
+                0,
+                47,
+                100,
+                68
+            ),
+
+            -1: (
+                110,
+                30,
+                145,
+                100
+            ),
+
+            0: (
+                265,
+                10,
+                240,
+                140
+            ),
+
+            1: (
+                520,
+                30,
+                145,
+                100
+            ),
+
+            2: (
+                675,
+                47,
+                100,
+                68
+            ),
+        }
+
+        return slots.get(
+            slot,
+            None
+        )
+
+
+    # ========================================================
+    # Off-screen geometry
+    # ========================================================
+
+    def outside_geometry(self, direction):
+
+        if direction > 0:
+
+            return (
+                -150,
+                55,
+                100,
+                68
+            )
+
+        return (
+            825,
+            55,
+            100,
+            68
+        )
+
+
+    # ========================================================
+    # Current carousel
+    # ========================================================
+
+    def render(self):
+
+        for child in self.carousel.get_children():
+
+            self.carousel.remove(
+                child
+            )
+
+        self.animation_cards = []
+
+        if not self.visible:
+
+            empty = Gtk.Label(
+                label="No matching wallpapers"
+            )
+
+            empty.set_name(
+                "empty"
+            )
+
+            self.carousel.put(
+                empty,
+                290,
+                60
+            )
+
+            self.carousel.show_all()
+
+            return
+
+        self.selected %= len(
+            self.visible
+        )
+
+        # ----------------------------------------------------
+        # Five visible wallpapers
+        # ----------------------------------------------------
+
+        for slot in range(-2, 3):
+
+            index = (
+                self.selected + slot
+            ) % len(self.visible)
+
+            path = self.visible[index]
+
+            card = WallpaperCard(
+                path,
+                self.card_clicked
+            )
+
+            geometry = self.slot_geometry(
+                slot
+            )
+
+            x, y, w, h = geometry
+
+            card.set_geometry(
+                x,
+                y,
+                w,
+                h,
+                slot == 0
+            )
+
+            self.carousel.put(
+                card.event,
+                x,
+                y
+            )
+
+        self.carousel.show_all()
+
+
+    # ========================================================
+    # Selection movement
+    # ========================================================
+
+    def move_selection(self, direction):
+
+        if not self.visible:
+            return
+
+        if len(self.visible) <= 1:
+            return
+
+        if self.animating:
+            return
+
+        self.animation_direction = direction
+
+        old_selected = self.selected
+
+        new_selected = (
+            self.selected + direction
+        ) % len(self.visible)
+
+        self.animation_start = (
+            GLib.get_monotonic_time()
+        )
+
+        self.animating = True
+
+        self.animation_cards = []
+
+        # ----------------------------------------------------
+        # Remove existing widgets.
+        # ----------------------------------------------------
+
+        for child in self.carousel.get_children():
+
+            self.carousel.remove(
+                child
+            )
+
+        # ----------------------------------------------------
+        # Old five cards.
+        # ----------------------------------------------------
+
+        for old_slot in range(-2, 3):
+
+            old_index = (
+                old_selected + old_slot
+            ) % len(self.visible)
+
+            path = self.visible[
+                old_index
+            ]
+
+            card = WallpaperCard(
+                path,
+                self.card_clicked
+            )
+
+            old_geometry = self.slot_geometry(
+                old_slot
+            )
+
+            new_slot = (
+                old_slot - direction
+            )
+
+            if (
+                new_slot >= -2
+                and new_slot <= 2
+            ):
+
+                new_geometry = self.slot_geometry(
+                    new_slot
+                )
+
+            else:
+
+                new_geometry = self.outside_geometry(
+                    direction
+                )
+
+            self.animation_cards.append(
+                (
+                    card,
+                    old_geometry,
+                    new_geometry,
+                    new_slot == 0
+                )
+            )
+
+        # ----------------------------------------------------
+        # Entering wallpaper.
+        # ----------------------------------------------------
+
+        entering_index = (
+            new_selected
+            + (2 * direction)
+        ) % len(self.visible)
+
+        entering_path = self.visible[
+            entering_index
+        ]
+
+        entering_card = WallpaperCard(
+            entering_path,
+            self.card_clicked
+        )
+
+        if direction > 0:
+
+            entering_start = self.outside_geometry(
+                direction
+            )
+
+            entering_target = self.slot_geometry(
+                2
+            )
+
+        else:
+
+            entering_start = self.outside_geometry(
+                direction
+            )
+
+            entering_target = self.slot_geometry(
+                -2
+            )
+
+        self.animation_cards.append(
+            (
+                entering_card,
+                entering_start,
+                entering_target,
+                False
+            )
+        )
+
+        # ----------------------------------------------------
+        # Change selection.
+        # ----------------------------------------------------
+
+        self.selected = new_selected
+
+        self.name_update()
+
+        # ----------------------------------------------------
+        # Start animation.
+        # ----------------------------------------------------
+
+        GLib.timeout_add(
+            16,
+            self.animate
+        )
+
+
+    # ========================================================
+    # Animation
+    # ========================================================
+
+    def animate(self):
+
+        elapsed = (
+            GLib.get_monotonic_time()
+            - self.animation_start
+        ) / 1000.0
+
+        progress = min(
+            1.0,
+            elapsed / self.animation_duration
+        )
+
+        # ----------------------------------------------------
+        # Smooth ease-in-out.
+        # ----------------------------------------------------
+
+        eased = (
+            0.5
+            - 0.5
+            * math.cos(
+                math.pi * progress
+            )
+        )
+
+        # ----------------------------------------------------
+        # Draw every moving card.
+        # ----------------------------------------------------
+
+        for card, start, end, selected in self.animation_cards:
+
+            sx, sy, sw, sh = start
+
+            ex, ey, ew, eh = end
+
+            x = (
+                sx
+                + (ex - sx) * eased
+            )
+
+            y = (
+                sy
+                + (ey - sy) * eased
+            )
+
+            w = (
+                sw
+                + (ew - sw) * eased
+            )
+
+            h = (
+                sh
+                + (eh - sh) * eased
+            )
+
+            # ------------------------------------------------
+            # Selected card glow starts softly and becomes
+            # stronger as it reaches the center.
+            # ------------------------------------------------
+
+            is_selected = (
+                selected
+                and progress > 0.30
+            )
+
+            card.set_geometry(
+                x,
+                y,
+                w,
+                h,
+                is_selected
+            )
+
+            if card.event.get_parent() is None:
+
+                self.carousel.put(
+                    card.event,
+                    int(x),
+                    int(y)
+                )
+
+            else:
+
+                self.carousel.move(
+                    card.event,
+                    int(x),
+                    int(y)
+                )
+
+        self.carousel.show_all()
+
+        # ----------------------------------------------------
+        # Finish.
+        # ----------------------------------------------------
+
+        if progress >= 1.0:
+
+            self.animating = False
+
+            self.render()
+
+            return False
+
+        return True
+
+
+    # ========================================================
+    # Name update
+    # ========================================================
+
+    def name_update(self):
+
+        # Intentionally no filename/title displayed.
+        pass
+
+
+    # ========================================================
+    # Mouse selection
+    # ========================================================
+
+    def card_clicked(
+        self,
+        widget,
+        event,
+        path
+    ):
+
+        if self.animating:
+
+            return True
+
+        try:
+
+            index = self.visible.index(
+                path
+            )
+
+        except ValueError:
+
+            return True
+
+        if index == self.selected:
+
+            self.apply_selected()
+
+            return True
+
+        count = len(
+            self.visible
+        )
+
+        forward = (
+            index - self.selected
+        ) % count
+
+        backward = (
+            self.selected - index
+        ) % count
+
+        if forward <= backward:
+
+            direction = 1
+
+        else:
+
+            direction = -1
+
+        self.move_selection(
+            direction
+        )
+
+        return True
+
+
+    # ========================================================
+    # Search
+    # ========================================================
+
+    def filter(self, *_):
+
+        query = (
+            self.search
+            .get_text()
+            .lower()
+            .strip()
+        )
+
+        self.visible = [
+            path
+            for path in self.files
+            if query in path.name.lower()
+        ]
+
+        self.selected = 0
+
+        self.animating = False
+
+        self.render()
+
+
+    # ========================================================
+    # Apply wallpaper
+    # ========================================================
+
+    def apply_selected(self):
+
+        if not self.visible:
+
+            return
+
+        path = self.visible[
+            self.selected
+        ]
+
+        subprocess.Popen(
+            [
+                str(CTL),
+                "set",
+                str(path)
+            ]
+        )
+
+        self.destroy()
+
+
+    # ========================================================
+    # Keyboard
+    # ========================================================
+
+    def key(self, _, event):
+
+        key = event.keyval
+
+        if key == Gdk.KEY_Escape:
+
+            self.destroy()
+
+            return True
+
+        if key in (
+            Gdk.KEY_Return,
+            Gdk.KEY_KP_Enter
+        ):
+
+            self.apply_selected()
+
+            return True
+
+        if key == Gdk.KEY_Left:
+
+            self.move_selection(-1)
+
+            return True
+
+        if key == Gdk.KEY_Right:
+
+            self.move_selection(1)
+
+            return True
+
+        return False
+
+
+# ------------------------------------------------------------
+# Main
+# ------------------------------------------------------------
+
+if __name__ == "__main__":
+
+    win = Picker()
+
+    win.show_all()
+
+    Gtk.main()

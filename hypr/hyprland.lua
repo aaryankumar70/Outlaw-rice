@@ -243,23 +243,21 @@ hl.animation({
     speed = 3.81,
     bezier = "easeOutQuint"
 })
-
 hl.animation({
     leaf = "layersIn",
     enabled = true,
-    speed = 4,
+    speed = 6.5,
     bezier = "easeOutQuint",
-    style = "fade"
+    style = "slide"
 })
 
 hl.animation({
     leaf = "layersOut",
     enabled = true,
-    speed = 1.5,
-    bezier = "linear",
-    style = "fade"
+    speed = 6.5,
+    bezier = "easeOutQuint",
+    style = "slide"
 })
-
 hl.animation({
     leaf = "fadeLayersIn",
     enabled = true,
