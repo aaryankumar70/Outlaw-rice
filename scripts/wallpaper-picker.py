@@ -20,22 +20,22 @@ WINDOW_H = 260
 
 CSS = b"""
 window {
-    background-color: rgba(8, 9, 15, 0.72);
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    border-radius: 3px;
+    background-color: rgba(15, 20, 22, 0.72);
+    border: 1px solid rgba(137, 146, 149, 0.55);
+    border-radius: 8px;
 }
 
 #search {
-    background-color: rgba(10, 11, 18, 0.48);
-    color: #f5f4ff;
-    border: 1px solid rgba(255, 255, 255, 0.13);
-    border-radius: 4px;
-    padding: 4px 5px;
+    background-color: rgba(27, 32, 34, 0.58);
+    color: #dee3e5;
+    border: 1px solid rgba(137, 146, 149, 0.45);
+    border-radius: 1px;
+    padding: 4px 6px;
     font-size: 11px;
 }
 
 #search:focus {
-    border-color: rgba(197, 167, 255, 0.65);
+    border-color: #85d2e7;
     box-shadow: none;
 }
 
@@ -44,29 +44,29 @@ window {
 }
 
 #card {
-    background-color: rgba(12, 13, 20, 0.25);
-    border: 1px solid rgba(255, 255, 255, 0.13);
+    background-color: rgba(23, 28, 30, 0.38);
+    border: 1px solid rgba(63, 72, 75, 0.70);
     border-radius: 2px;
 }
 
 #card-selected {
-    background-color: rgba(255, 255, 255, 0.06);
-    border: 2px solid #c5a7ff;
+    background-color: rgba(0, 78, 92, 0.55);
+    border: 1px solid #85d2e7;
     border-radius: 2px;
 }
 
 #empty {
-    color: rgba(255, 255, 255, 0.50);
+    color: #bfc8cb;
     font-size: 11px;
 }
 """
-
 
 def palette_css():
 
     css = CSS
 
     try:
+
         colors_file = (
             Path.home()
             / ".config"
@@ -83,50 +83,141 @@ def palette_css():
             )
         )
 
-        accent = colors.get(
-            "accent",
-            "#c5a7ff"
+        background = colors.get(
+            "surface",
+            "#0f1416"
+        )
+
+        surface_container = colors.get(
+            "surface_container",
+            "#1b2022"
+        )
+
+        surface_low = colors.get(
+            "surface_container_low",
+            "#171c1e"
         )
 
         foreground = colors.get(
             "foreground",
-            "#f5f4ff"
+            "#dee3e5"
         )
 
-        background = colors.get(
-            "background",
-            "#08090f"
+        foreground_variant = colors.get(
+            "foreground_variant",
+            "#bfc8cb"
         )
 
-        # Convert wallpaper-derived background to rgba
-        r = int(background[1:3], 16)
-        g = int(background[3:5], 16)
-        b = int(background[5:7], 16)
-
-        themed_background = (
-            f"rgba({r}, {g}, {b}, 0.72)"
+        primary = colors.get(
+            "primary",
+            "#85d2e7"
         )
 
+        primary_container = colors.get(
+            "primary_container",
+            "#004e5c"
+        )
+
+        outline = colors.get(
+            "outline_variant",
+            "#3f484b"
+        )
+
+
+        def rgba(hex_color, alpha):
+
+            hex_color = hex_color.lstrip("#")
+
+            r = int(hex_color[0:2], 16)
+            g = int(hex_color[2:4], 16)
+            b = int(hex_color[4:6], 16)
+
+            return (
+                f"rgba({r}, {g}, {b}, {alpha})"
+            )
+
+
+        # Container
         css = css.replace(
-            b"rgba(8, 9, 15, 0.72)",
-            themed_background.encode()
+            b"rgba(15, 20, 22, 0.72)",
+            rgba(background, 0.72).encode()
         )
 
+
+        # Container border
         css = css.replace(
-            b"#f5f4ff",
+            b"rgba(137, 146, 149, 0.55)",
+            rgba(outline, 0.55).encode()
+        )
+
+
+        # Search background
+        css = css.replace(
+            b"rgba(27, 32, 34, 0.58)",
+            rgba(surface_container, 0.58).encode()
+        )
+
+
+        # Search text
+        css = css.replace(
+            b"#dee3e5",
             foreground.encode()
         )
 
+
+        # Search border
         css = css.replace(
-            b"#c5a7ff",
-            accent.encode()
+            b"rgba(137, 146, 149, 0.45)",
+            rgba(outline, 0.45).encode()
         )
+
+
+        # Search focus
+        css = css.replace(
+            b"#85d2e7",
+            primary.encode()
+        )
+
+
+        # Normal cards
+        css = css.replace(
+            b"rgba(23, 28, 30, 0.38)",
+            rgba(surface_low, 0.38).encode()
+        )
+
+
+        # Normal card border
+        css = css.replace(
+            b"rgba(63, 72, 75, 0.70)",
+            rgba(outline, 0.70).encode()
+        )
+
+
+        # Selected card
+        css = css.replace(
+            b"rgba(0, 78, 92, 0.55)",
+            rgba(primary_container, 0.55).encode()
+        )
+
+
+        # Selected border
+        css = css.replace(
+            b"#85d2e7",
+            primary.encode()
+        )
+
+
+        # Empty text
+        css = css.replace(
+            b"#bfc8cb",
+            foreground_variant.encode()
+        )
+
 
     except Exception:
         pass
 
     return css
-
 class WallpaperCard:
 
     def __init__(self, path, callback):

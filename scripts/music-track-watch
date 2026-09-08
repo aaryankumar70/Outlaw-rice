@@ -1,0 +1,18 @@
+#!/bin/bash
+
+LAST=""
+
+while true; do
+    CUR=$(playerctl metadata mpris:trackid 2>/dev/null)
+
+    if [ -n "$CUR" ] && [ "$CUR" != "$LAST" ]; then
+        LAST="$CUR"
+
+        ~/outlaw-rice/scripts/album-cava-colors
+
+        # Only kill CAVA. The loop restarts it.
+        pkill -x cava
+    fi
+
+    sleep 2
+done

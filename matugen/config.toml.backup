@@ -1,0 +1,39 @@
+[config]
+reload_apps = false
+
+[templates.waybar]
+input_path = "~/outlaw-rice/matugen/templates/colors.css"
+output_path = "~/.config/waybar/colors.css"
+post_hook = "pkill -SIGUSR2 waybar || true"
+
+[templates.rofi]
+input_path = "~/outlaw-rice/matugen/templates/wifi.rasi"
+output_path = "~/.config/rofi/wifi.rasi"
+
+[templates.bluetooth]
+input_path = "~/outlaw-rice/matugen/templates/bluetooth.rasi"
+output_path = "~/.config/rofi/bluetooth.rasi"
+
+[templates.cava]
+input_path = '~/.config/matugen/templates/cava'
+output_path = '~/.config/cava/colors.conf'
+
+[templates.wifi-password]
+input_path = "~/outlaw-rice/matugen/templates/wifi-password.rasi"
+output_path = "~/.config/rofi/wifi-password.rasi"
+
+[templates.drun]
+input_path = "~/outlaw-rice/matugen/templates/drun.rasi"
+output_path = "~/.config/rofi/drun.rasi"
+
+[templates.wallpaper]
+input_path = "~/outlaw-rice/matugen/templates/wallpaper.rasi"
+output_path = "~/.config/rofi/wallpaper.rasi"
+
+[templates.kitty]
+input_path = "~/outlaw-rice/matugen/templates/kitty.conf"
+output_path = "~/.config/kitty/theme.conf"
+
+[templates.hyprlock]
+input_path = "~/outlaw-rice/matugen/templates/hyprlock-colors.conf"
+output_path = "~/.config/hypr/hyprlock-colors.conf"

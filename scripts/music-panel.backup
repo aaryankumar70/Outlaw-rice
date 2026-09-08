@@ -9,15 +9,4 @@ exec kitty \
 --override=background_opacity=0.0 \
 --override=initial_window_width=86c \
 --override=initial_window_height=24c \
-sh -lc '
-printf "\e[1;38;5;117m  OUTLAW // NOW PLAYING\e[0m\n\n"
-playerctl metadata --format "  {{artist}} — {{title}}\n  {{album}}\n" 2>/dev/null || printf "  No active player.\n"
-printf "\n"
-
-~/outlaw-rice/scripts/music-track-watch &
-
-while true; do
-    cava
-    sleep 0.15
-done
-'
+sh -lc 'printf "\e[1;38;5;117m  OUTLAW // NOW PLAYING\e[0m\n\n"; playerctl metadata --format "  {{artist}} — {{title}}\n  {{album}}\n" 2>/dev/null || printf "  No active player — start playback, then reopen this panel.\n"; printf "\n"; cava'

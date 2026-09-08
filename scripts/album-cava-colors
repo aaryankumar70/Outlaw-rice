@@ -1,0 +1,130 @@
+#!/bin/bash
+
+CAVA_CONFIG="$HOME/.config/cava/config"
+ART="$HOME/.cache/outlaw-album-art.jpg"
+
+ART_URL=$(playerctl metadata mpris:artUrl 2>/dev/null)
+
+ART_URL="${ART_URL#[}"
+ART_URL="${ART_URL%]}"
+
+[ -z "$ART_URL" ] && exit 0
+
+curl -fsSL --max-time 8 "$ART_URL" -o "$ART" || exit 0
+
+python3 - "$ART" "$CAVA_CONFIG" <<'PY'
+import sys
+from PIL import Image
+from collections import Counter
+from math import sqrt
+
+art_path = sys.argv[1]
+config_path = sys.argv[2]
+
+img = Image.open(art_path).convert("RGB")
+img.thumbnail((120, 120))
+
+pixels = list(img.getdata())
+
+# Find colorful pixels and ignore black/gray areas.
+candidates = []
+
+for r, g, b in pixels:
+    brightness = (r + g + b) / 3
+    saturation = (max(r, g, b) - min(r, g, b)) / max(max(r, g, b), 1)
+
+    if brightness < 45:
+        continue
+
+    if saturation < 0.20:
+        continue
+
+    candidates.append((r, g, b))
+
+# Fallback for monochrome album covers
+if len(candidates) < 20:
+    candidates = [
+        (r, g, b)
+        for r, g, b in pixels
+        if (r + g + b) / 3 > 70
+    ]
+
+if not candidates:
+    colors = [
+        "#85d2e7",
+        "#8ed8e8",
+        "#9bdde8",
+        "#b2cbd2",
+        "#bfc4eb",
+        "#d0d3f2",
+    ]
+else:
+    # Group similar colors together.
+    quantized = [
+        ((r // 16) * 16,
+         (g // 16) * 16,
+         (b // 16) * 16)
+        for r, g, b in candidates
+    ]
+
+    counts = Counter(quantized)
+    selected = []
+
+    # Pick distinct colors instead of six nearly identical shades.
+    for color, _ in counts.most_common():
+
+        if all(
+            sqrt(
+                (color[0] - old[0]) ** 2 +
+                (color[1] - old[1]) ** 2 +
+                (color[2] - old[2]) ** 2
+            ) > 45
+            for old in selected
+        ):
+            selected.append(color)
+
+        if len(selected) == 6:
+            break
+
+    while len(selected) < 6:
+        selected.append(selected[-1] if selected else (133, 210, 231))
+
+    colors = [
+        "#{:02x}{:02x}{:02x}".format(*c)
+        for c in selected
+    ]
+
+# Read the existing CAVA configuration.
+with open(config_path, "r") as f:
+    config = f.read()
+
+start = config.find("[color]")
+end = config.find("[smoothing]")
+
+if start == -1 or end == -1:
+    print("Could not find CAVA color section.")
+    sys.exit(1)
+
+color_section = f"""[color]
+
+; background intentionally omitted for transparency
+foreground = '{colors[0]}'
+gradient = 1
+gradient_count = 6
+gradient_color_1 = '{colors[0]}'
+gradient_color_2 = '{colors[1]}'
+gradient_color_3 = '{colors[2]}'
+gradient_color_4 = '{colors[3]}'
+gradient_color_5 = '{colors[4]}'
+gradient_color_6 = '{colors[5]}'
+
+"""
+
+new_config = config[:start] + color_section + config[end:]
+
+with open(config_path, "w") as f:
+    f.write(new_config)
+
+print("Album colors:")
+print(" ".join(colors))
+PY

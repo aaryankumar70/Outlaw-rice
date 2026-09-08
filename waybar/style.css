@@ -119,15 +119,19 @@ window#waybar {
     border-right: 1px solid alpha(@foreground, 0.12);
 }
 
+/* Music */
+
 #custom-music.playing {
-    color: @accent;
-    text-shadow: 0 0 8px alpha(@accent, 0.35);
+    color: @primary;
 }
 
 #custom-music.paused {
-    color: alpha(@foreground, 0.42);
+    color: @secondary;
 }
 
+#custom-music.idle {
+    color: @foreground_variant;
+}
 
 /* =========================================================
    SYSTEM ICONS
