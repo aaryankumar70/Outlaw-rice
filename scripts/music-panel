@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# A purposeful, floating CAVA panel. CAVA is started only on demand so it
-# never competes with Waybar or consumes audio input in the background.
+# Floating CAVA panel. CAVA runs only on demand.
 
 exec kitty \
 --class=outlaw-music-panel \
@@ -14,10 +13,5 @@ printf "\e[1;38;5;117m  OUTLAW // NOW PLAYING\e[0m\n\n"
 playerctl metadata --format "  {{artist}} — {{title}}\n  {{album}}\n" 2>/dev/null || printf "  No active player.\n"
 printf "\n"
 
-~/outlaw-rice/scripts/music-track-watch &
-
-while true; do
-    cava
-    sleep 0.15
-done
+cava
 '

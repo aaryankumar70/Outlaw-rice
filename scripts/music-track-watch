@@ -1,17 +1,17 @@
 #!/bin/bash
 
-LAST=""
+LAST_TRACK=""
+
+# Apply colors immediately for whatever is currently playing.
+~/outlaw-rice/scripts/album-cava-colors 2>/dev/null
 
 while true; do
-    CUR=$(playerctl metadata mpris:trackid 2>/dev/null)
+    TRACK=$(playerctl metadata mpris:trackid 2>/dev/null)
 
-    if [ -n "$CUR" ] && [ "$CUR" != "$LAST" ]; then
-        LAST="$CUR"
+    if [ -n "$TRACK" ] && [ "$TRACK" != "$LAST_TRACK" ]; then
+        LAST_TRACK="$TRACK"
 
-        ~/outlaw-rice/scripts/album-cava-colors
-
-        # Only kill CAVA. The loop restarts it.
-        pkill -x cava
+        ~/outlaw-rice/scripts/album-cava-colors 2>/dev/null
     fi
 
     sleep 2
