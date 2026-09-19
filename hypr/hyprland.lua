@@ -420,7 +420,10 @@ hl.bind(
     )
 )
 
-
+hl.bind(
+    mainMod .. " + SPACE",
+    hl.dsp.exec_cmd("~/.local/bin/capsule-toggle")
+)
 -- File manager
 hl.bind(
     mainMod .. " + E",
