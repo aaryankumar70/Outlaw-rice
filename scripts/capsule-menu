@@ -1,13 +1,2560 @@
-#!/bin/bash
+#!/usr/bin/env python3
 
-STATE="$HOME/.cache/capsule-state"
+import subprocess
+import time
+import math
+import re
+from pathlib import Path
 
-mkdir -p "$HOME/.cache"
+import gi
 
-if [ "$(cat "$STATE" 2>/dev/null)" = "open" ]; then
-    echo "closed" > "$STATE"
-else
-    echo "open" > "$STATE"
-fi
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GdkPixbuf", "2.0")
+gi.require_version("GtkLayerShell", "0.1")
+gi.require_version("GioUnix", "2.0")
 
-pkill -SIGUSR2 waybar
+from gi.repository import (
+    Gtk,
+    Gdk,
+    GdkPixbuf,
+    Gio,
+    GioUnix,
+    GLib,
+    GtkLayerShell,
+    Pango,
+)
+
+import psutil
+
+
+# ============================================================
+# CONFIG
+# ============================================================
+
+WIDTH = 340
+TOP_MARGIN = 38
+
+ACCENT = "#85d2e7"
+PURPLE = "#c6afd8"
+TEXT = "#dee3e5"
+
+PROFILE = Path(
+    "/home/ryu/outlaw-rice/assets/black_cat.png"
+)
+
+LOCK = Path(
+    "/tmp/outlaw-capsule.lock"
+)
+
+
+# ============================================================
+# SINGLE INSTANCE
+# ============================================================
+
+if LOCK.exists():
+    try:
+        if time.time() - LOCK.stat().st_mtime < 8:
+            raise SystemExit
+        LOCK.unlink()
+    except Exception:
+        pass
+
+try:
+    LOCK.touch()
+except Exception:
+    pass
+
+
+def cleanup_lock():
+    try:
+        LOCK.unlink()
+    except Exception:
+        pass
+
+
+# ============================================================
+# COMMAND HELPERS
+# ============================================================
+
+def run(command):
+    try:
+        subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
+
+
+def command_exists(command):
+    try:
+        return subprocess.call(
+            [
+                "bash",
+                "-lc",
+                f"command -v {command} >/dev/null 2>&1",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ) == 0
+    except Exception:
+        return False
+
+
+# ============================================================
+# APPLICATIONS
+# ============================================================
+
+def find_desktop_app(candidates):
+
+    for candidate in candidates:
+        try:
+            app = GioUnix.DesktopAppInfo.new(candidate)
+
+            if app is not None:
+                return app
+        except Exception:
+            pass
+
+    try:
+        apps = Gio.AppInfo.get_all()
+
+        names = [
+            x.lower().replace(".desktop", "")
+            for x in candidates
+        ]
+
+        for app in apps:
+            try:
+                app_id = (
+                    app.get_id() or ""
+                ).lower()
+
+                app_name = (
+                    app.get_name() or ""
+                ).lower()
+
+                if any(
+                    x in app_id or x in app_name
+                    for x in names
+                ):
+                    return app
+
+            except Exception:
+                continue
+
+    except Exception:
+        pass
+
+    return None
+
+
+def launch_app(candidates, fallback=None):
+
+    app = find_desktop_app(candidates)
+
+    if app:
+        try:
+            app.launch([], None)
+            return
+        except Exception:
+            pass
+
+    if fallback:
+        run(fallback)
+
+
+# ============================================================
+# WIFI
+# ============================================================
+
+def get_wifi():
+
+    try:
+        result = subprocess.run(
+            [
+                "bash",
+                "-lc",
+                "nmcli -t -f active,ssid,signal dev wifi "
+                "| grep '^yes:' | head -n1",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+
+        line = result.stdout.strip()
+
+        if line.startswith("yes:"):
+
+            parts = line.split(":")
+
+            if len(parts) >= 3:
+
+                ssid = parts[1].strip()
+
+                try:
+                    signal = int(parts[2])
+                except Exception:
+                    signal = 0
+
+                return True, ssid or "Connected", signal
+
+    except Exception:
+        pass
+
+    return False, "Disconnected", 0
+
+
+# ============================================================
+# BLUETOOTH
+# ============================================================
+
+def get_bluetooth():
+
+    try:
+
+        powered = subprocess.run(
+            [
+                "bash",
+                "-lc",
+                "bluetoothctl show 2>/dev/null "
+                "| grep -q 'Powered: yes'",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode == 0
+
+        if not powered:
+            return False, "Bluetooth off", 0
+
+
+        result = subprocess.run(
+            [
+                "bash",
+                "-lc",
+                "bluetoothctl devices Connected 2>/dev/null",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+
+        lines = [
+            x.strip()
+            for x in result.stdout.splitlines()
+            if x.strip()
+        ]
+
+        if lines:
+
+            parts = lines[0].split(" ", 2)
+
+            if len(parts) >= 3:
+                return True, parts[2], 100
+
+            return True, "Connected", 100
+
+        return True, "Ready", 0
+
+    except Exception:
+        return False, "Unavailable", 0
+
+
+# ============================================================
+# MUSIC
+# ============================================================
+
+def get_music():
+
+    try:
+
+        result = subprocess.run(
+            [
+                "bash",
+                "-lc",
+                "playerctl metadata "
+                "--format '{{artist}} — {{title}}' "
+                "2>/dev/null",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+
+        track = result.stdout.strip()
+
+        if track:
+            return track
+
+    except Exception:
+        pass
+
+    return "Nothing playing"
+
+
+def music_playing():
+
+    try:
+
+        result = subprocess.run(
+            [
+                "bash",
+                "-lc",
+                "playerctl status 2>/dev/null",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+
+        return result.stdout.strip() == "Playing"
+
+    except Exception:
+        return False
+
+
+# ============================================================
+# VOLUME
+# ============================================================
+
+def get_volume():
+
+    try:
+
+        result = subprocess.run(
+            [
+                "bash",
+                "-lc",
+                "wpctl get-volume @DEFAULT_AUDIO_SINK@",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+
+        match = re.search(
+            r"Volume:\s+([0-9.]+)",
+            result.stdout,
+        )
+
+        if match:
+            return min(
+                100,
+                int(float(match.group(1)) * 100),
+            )
+
+    except Exception:
+        pass
+
+    return 0
+
+
+def muted():
+
+    try:
+
+        result = subprocess.run(
+            [
+                "bash",
+                "-lc",
+                "wpctl get-volume @DEFAULT_AUDIO_SINK@",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+
+        return "[MUTED]" in result.stdout
+
+    except Exception:
+        return False
+
+
+def volume_up():
+    run(
+        "wpctl set-volume "
+        "@DEFAULT_AUDIO_SINK@ 5%+"
+    )
+
+
+def volume_down():
+    run(
+        "wpctl set-volume "
+        "@DEFAULT_AUDIO_SINK@ 5%-"
+    )
+
+
+def toggle_mute():
+    run(
+        "wpctl set-mute "
+        "@DEFAULT_AUDIO_SINK@ toggle"
+    )
+
+
+# ============================================================
+# BRIGHTNESS
+# ============================================================
+
+def get_brightness():
+
+    if not command_exists("brightnessctl"):
+        return 0
+
+    try:
+
+        result = subprocess.run(
+            [
+                "bash",
+                "-lc",
+                "brightnessctl -m",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+
+        parts = result.stdout.strip().split(",")
+
+        if len(parts) >= 4:
+
+            current = int(parts[2])
+            maximum = int(parts[3])
+
+            if maximum:
+                return int(
+                    current / maximum * 100
+                )
+
+    except Exception:
+        pass
+
+    return 0
+
+
+def brightness_up():
+    if command_exists("brightnessctl"):
+        run("brightnessctl set 5%+")
+
+
+def brightness_down():
+    if command_exists("brightnessctl"):
+        run("brightnessctl set 5%-")
+
+
+# ============================================================
+# CIRCULAR INDICATOR
+# ============================================================
+
+class CircularIndicator(Gtk.Box):
+
+    def __init__(
+        self,
+        label,
+        icon,
+        accent=ACCENT,
+        size=54,
+        interactive=False,
+    ):
+
+        super().__init__(
+            orientation=Gtk.Orientation.VERTICAL
+        )
+
+        self.label_name = label
+        self.icon_text = icon
+        self.accent = accent
+        self.value = 0.0
+        self.connected = True
+        self.status = ""
+        self.interactive = interactive
+        self.hover = False
+
+        self.set_size_request(
+            size,
+            size,
+        )
+
+        self.set_halign(
+            Gtk.Align.CENTER
+        )
+
+        self.set_valign(
+            Gtk.Align.CENTER
+        )
+
+
+        # ----------------------------------------------------
+        # Drawing area
+        # ----------------------------------------------------
+
+        self.canvas = Gtk.DrawingArea()
+
+        self.canvas.set_size_request(
+            size,
+            size,
+        )
+
+        self.canvas.set_halign(
+            Gtk.Align.CENTER
+        )
+
+        self.canvas.set_valign(
+            Gtk.Align.CENTER
+        )
+
+        self.canvas.add_events(
+            Gdk.EventMask.ENTER_NOTIFY_MASK
+            | Gdk.EventMask.LEAVE_NOTIFY_MASK
+            | Gdk.EventMask.SCROLL_MASK
+            | Gdk.EventMask.BUTTON_PRESS_MASK
+        )
+
+
+        self.canvas.connect(
+            "draw",
+            self.draw_ring,
+        )
+
+        self.canvas.connect(
+            "enter-notify-event",
+            self.enter,
+        )
+
+        self.canvas.connect(
+            "leave-notify-event",
+            self.leave,
+        )
+
+        self.canvas.connect(
+            "scroll-event",
+            self.scroll,
+        )
+
+        self.canvas.connect(
+            "button-press-event",
+            self.click,
+        )
+
+
+        # ----------------------------------------------------
+        # Icon overlay
+        # ----------------------------------------------------
+
+        overlay = Gtk.Overlay()
+
+        overlay.set_size_request(
+            size,
+            size,
+        )
+
+
+        overlay.add(
+            self.canvas
+        )
+
+
+        center = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=0,
+        )
+
+        center.set_halign(
+            Gtk.Align.CENTER
+        )
+
+        center.set_valign(
+            Gtk.Align.CENTER
+        )
+
+
+        self.icon = Gtk.Label(
+            label=icon
+        )
+
+        self.icon.set_halign(
+            Gtk.Align.CENTER
+        )
+
+        self.icon.set_valign(
+            Gtk.Align.CENTER
+        )
+
+
+        self.percent = Gtk.Label(
+            label="0%"
+        )
+
+        self.percent.set_halign(
+            Gtk.Align.CENTER
+        )
+
+        self.percent.set_valign(
+            Gtk.Align.CENTER
+        )
+
+
+        center.pack_start(
+            self.icon,
+            False,
+            False,
+            0,
+        )
+
+        center.pack_start(
+            self.percent,
+            False,
+            False,
+            0,
+        )
+
+
+        overlay.add_overlay(
+            center
+        )
+
+
+        self.pack_start(
+            overlay,
+            False,
+            False,
+            0,
+        )
+
+
+        # ----------------------------------------------------
+        # Tooltip
+        # ----------------------------------------------------
+
+        self.set_tooltip_text(
+            label
+        )
+
+
+        self.apply_css()
+
+
+    def apply_css(self):
+
+        css = f"""
+
+        .capsule-indicator-icon {{
+            color: {TEXT};
+            font-family: "JetBrainsMono Nerd Font";
+            font-size: 13px;
+            font-weight: bold;
+        }}
+
+        .capsule-indicator-percent {{
+            color: rgba(222,227,229,0.58);
+            font-family: "JetBrainsMono Nerd Font";
+            font-size: 6px;
+        }}
+
+        """
+
+        provider = Gtk.CssProvider()
+
+        provider.load_from_data(
+            css.encode()
+        )
+
+        self.icon.get_style_context().add_provider(
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+
+        self.percent.get_style_context().add_provider(
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+
+        self.icon.get_style_context().add_class(
+            "capsule-indicator-icon"
+        )
+
+        self.percent.get_style_context().add_class(
+            "capsule-indicator-percent"
+        )
+
+
+    def set_value(self, value):
+
+        self.value = max(
+            0,
+            min(
+                1,
+                value,
+            ),
+        )
+
+        self.percent.set_text(
+            f"{int(self.value * 100)}%"
+        )
+
+        self.canvas.queue_draw()
+
+
+    def set_connection(
+        self,
+        connected,
+        value,
+        status,
+    ):
+
+        self.connected = connected
+        self.value = max(
+            0,
+            min(
+                1,
+                value,
+            ),
+        )
+
+        self.status = status
+
+        self.percent.set_text(
+            "ON" if connected else "OFF"
+        )
+
+        self.canvas.queue_draw()
+
+
+    def enter(
+        self,
+        widget,
+        event,
+    ):
+
+        self.hover = True
+
+        self.canvas.queue_draw()
+
+
+    def leave(
+        self,
+        widget,
+        event,
+    ):
+
+        self.hover = False
+
+        self.canvas.queue_draw()
+
+
+    def scroll(
+        self,
+        widget,
+        event,
+    ):
+
+        if not self.interactive:
+            return False
+
+        if event.direction == Gdk.ScrollDirection.UP:
+
+            if self.label_name == "VOLUME":
+                volume_up()
+
+            elif self.label_name == "BRIGHTNESS":
+                brightness_up()
+
+        elif event.direction == Gdk.ScrollDirection.DOWN:
+
+            if self.label_name == "VOLUME":
+                volume_down()
+
+            elif self.label_name == "BRIGHTNESS":
+                brightness_down()
+
+        return True
+
+
+    def click(
+        self,
+        widget,
+        event,
+    ):
+
+        if event.button != 1:
+            return False
+
+        if self.label_name == "VOLUME":
+            toggle_mute()
+
+        return True
+
+
+    def draw_ring(
+        self,
+        widget,
+        cr,
+    ):
+
+        allocation = widget.get_allocation()
+
+        width = allocation.width
+        height = allocation.height
+
+        cx = width / 2
+        cy = height / 2
+
+        radius = (
+            min(width, height) / 2
+            - 5
+        )
+
+
+        # ----------------------------------------------------
+        # Hover glow
+        # ----------------------------------------------------
+
+        if self.hover:
+
+            cr.set_source_rgba(
+                0.52,
+                0.82,
+                0.91,
+                0.08,
+            )
+
+            cr.arc(
+                cx,
+                cy,
+                radius + 4,
+                0,
+                2 * math.pi,
+            )
+
+            cr.fill()
+
+
+        # ----------------------------------------------------
+        # Background ring
+        # ----------------------------------------------------
+
+        cr.set_line_width(4)
+
+        cr.set_source_rgba(
+            0.87,
+            0.91,
+            0.93,
+            0.10,
+        )
+
+        cr.arc(
+            cx,
+            cy,
+            radius,
+            0,
+            2 * math.pi,
+        )
+
+        cr.stroke()
+
+
+        # ----------------------------------------------------
+        # Active ring
+        # ----------------------------------------------------
+
+        if self.connected and self.value > 0:
+
+            if self.accent == PURPLE:
+
+                cr.set_source_rgba(
+                    0.78,
+                    0.69,
+                    0.85,
+                    0.95,
+                )
+
+            else:
+
+                cr.set_source_rgba(
+                    0.52,
+                    0.82,
+                    0.91,
+                    0.95,
+                )
+
+            cr.set_line_width(4)
+
+            start = -math.pi / 2
+
+            end = (
+                start
+                + 2 * math.pi * self.value
+            )
+
+            cr.arc(
+                cx,
+                cy,
+                radius,
+                start,
+                end,
+            )
+
+            cr.stroke()
+
+
+        return False
+
+
+# ============================================================
+# HOVER CONNECTION ITEM
+# ============================================================
+
+class ConnectionItem(Gtk.EventBox):
+
+    def __init__(
+        self,
+        indicator,
+        icon,
+        title,
+    ):
+
+        super().__init__()
+
+        self.indicator = indicator
+        self.title = title
+
+
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=7,
+        )
+
+
+        box.pack_start(
+            indicator,
+            False,
+            False,
+            0,
+        )
+
+
+        self.text_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=1,
+        )
+
+
+        self.name = Gtk.Label(
+            label=title
+        )
+
+        self.name.set_name(
+            "connection-title"
+        )
+
+        self.name.set_xalign(
+            0
+        )
+
+
+        self.status = Gtk.Label(
+            label="Disconnected"
+        )
+
+        self.status.set_name(
+            "connection-status"
+        )
+
+        self.status.set_xalign(
+            0
+        )
+
+
+        self.text_box.pack_start(
+            self.name,
+            False,
+            False,
+            0,
+        )
+
+        self.text_box.pack_start(
+            self.status,
+            False,
+            False,
+            0,
+        )
+
+
+        # Start hidden
+        self.text_box.set_no_show_all(
+            True
+        )
+
+        self.text_box.hide()
+
+
+        box.pack_start(
+            self.text_box,
+            False,
+            False,
+            0,
+        )
+
+
+        self.add(
+            box
+        )
+
+
+        self.add_events(
+            Gdk.EventMask.ENTER_NOTIFY_MASK
+            | Gdk.EventMask.LEAVE_NOTIFY_MASK
+        )
+
+
+        self.connect(
+            "enter-notify-event",
+            self.show_text,
+        )
+
+        self.connect(
+            "leave-notify-event",
+            self.hide_text,
+        )
+
+
+    def show_text(
+        self,
+        widget,
+        event,
+    ):
+
+        self.text_box.show()
+
+        return False
+
+
+    def hide_text(
+        self,
+        widget,
+        event,
+    ):
+
+        self.text_box.hide()
+
+        return False
+
+
+    def update(
+        self,
+        connected,
+        value,
+        status,
+    ):
+
+        self.indicator.set_connection(
+            connected,
+            value,
+            status,
+        )
+
+        self.status.set_text(
+            status
+        )
+
+
+# ============================================================
+# MUSIC BAR
+# ============================================================
+
+class MusicBar(Gtk.EventBox):
+
+    def __init__(self):
+
+        super().__init__()
+
+        self.set_name(
+            "music-bar"
+        )
+
+
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+        )
+
+
+        # ----------------------------------------------------
+        # Music icon
+        # ----------------------------------------------------
+
+        icon = Gtk.Label(
+            label="󰝚"
+        )
+
+        icon.set_name(
+            "music-icon"
+        )
+
+
+        # ----------------------------------------------------
+        # Track
+        # ----------------------------------------------------
+
+        self.track = Gtk.Label(
+            label="Nothing playing"
+        )
+
+        self.track.set_name(
+            "music-track"
+        )
+
+        self.track.set_xalign(
+            0
+        )
+
+        self.track.set_ellipsize(
+            Pango.EllipsizeMode.END
+        )
+
+
+        # ----------------------------------------------------
+        # Play button
+        # ----------------------------------------------------
+
+        self.play = Gtk.Button(
+            label="󰐊"
+        )
+
+        self.play.set_relief(
+            Gtk.ReliefStyle.NONE
+        )
+
+        self.play.set_name(
+            "music-play"
+        )
+
+        self.play.connect(
+            "clicked",
+            self.toggle,
+        )
+
+
+        box.pack_start(
+            icon,
+            False,
+            False,
+            0,
+        )
+
+        box.pack_start(
+            self.track,
+            True,
+            True,
+            0,
+        )
+
+        box.pack_end(
+            self.play,
+            False,
+            False,
+            0,
+        )
+
+
+        self.add(
+            box
+        )
+
+
+    def toggle(self, *_):
+
+        run(
+            "playerctl play-pause"
+        )
+
+
+    def update(self):
+
+        self.track.set_text(
+            get_music()
+        )
+
+        if music_playing():
+
+            self.play.set_label(
+                "󰏤"
+            )
+
+        else:
+
+            self.play.set_label(
+                "󰐊"
+            )
+
+
+# ============================================================
+# MAIN CAPSULE
+# ============================================================
+
+class Capsule(Gtk.Window):
+
+    def __init__(self):
+
+        super().__init__(
+            type=Gtk.WindowType.TOPLEVEL
+        )
+
+
+        self.set_decorated(
+            False
+        )
+
+        self.set_resizable(
+            False
+        )
+
+        self.set_name(
+            "outlaw-capsule"
+        )
+
+
+        # ====================================================
+        # LAYER SHELL
+        # ====================================================
+
+        GtkLayerShell.init_for_window(
+            self
+        )
+
+        try:
+            GtkLayerShell.set_namespace(
+                self,
+                "outlaw-capsule",
+            )
+        except Exception:
+            pass
+
+
+        GtkLayerShell.set_layer(
+            self,
+            GtkLayerShell.Layer.OVERLAY,
+        )
+
+
+        # TOP ONLY.
+        # NO LEFT / RIGHT ANCHORS.
+        GtkLayerShell.set_anchor(
+            self,
+            GtkLayerShell.Edge.TOP,
+            True,
+        )
+
+
+        GtkLayerShell.set_margin(
+            self,
+            GtkLayerShell.Edge.TOP,
+            TOP_MARGIN,
+        )
+
+
+        try:
+
+            GtkLayerShell.set_keyboard_mode(
+                self,
+                GtkLayerShell.KeyboardMode.ON_DEMAND,
+            )
+
+        except Exception:
+            pass
+
+
+        self.load_css()
+
+
+        self.revealer = Gtk.Revealer()
+
+        self.revealer.set_transition_type(
+            Gtk.RevealerTransitionType.SLIDE_DOWN
+        )
+
+        self.revealer.set_transition_duration(
+            220
+        )
+
+
+        self.panel = self.build_panel()
+
+        self.revealer.add(
+            self.panel
+        )
+
+        self.add(
+            self.revealer
+        )
+
+
+        self.connect(
+            "destroy",
+            self.destroyed,
+        )
+
+
+        self.update_indicators()
+
+        self.show_all()
+
+        self.revealer.set_reveal_child(
+            False
+        )
+
+
+        GLib.timeout_add(
+            20,
+            self.open,
+        )
+
+        GLib.timeout_add(
+            700,
+            self.update_system,
+        )
+
+        GLib.timeout_add(
+            2000,
+            self.update_connection,
+        )
+
+        GLib.timeout_add(
+            1000,
+            self.update_music,
+        )
+
+
+    # ========================================================
+    # CSS
+    # ========================================================
+
+    def load_css(self):
+
+        css = f"""
+
+        window#outlaw-capsule {{
+            background: transparent;
+        }}
+
+
+        #capsule-panel {{
+            background:
+                rgba(
+                    8,
+                    13,
+                    16,
+                    0.74
+                );
+
+            border:
+                1px solid
+                rgba(
+                    222,
+                    227,
+                    229,
+                    0.14
+                );
+
+            border-radius: 18px;
+
+            padding: 12px;
+        }}
+
+
+        #profile {{
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.04
+                );
+
+            border:
+                1px solid
+                rgba(
+                    222,
+                    227,
+                    229,
+                    0.12
+                );
+
+            border-radius: 50%;
+        }}
+
+
+        #title {{
+            color: {TEXT};
+            font-family:
+                "JetBrainsMono Nerd Font";
+            font-size: 12px;
+            font-weight: 700;
+        }}
+
+
+        #subtitle {{
+            color:
+                rgba(
+                    191,
+                    200,
+                    203,
+                    0.50
+                );
+
+            font-family:
+                "JetBrainsMono Nerd Font";
+
+            font-size: 8px;
+        }}
+
+
+        .section-label {{
+            color:
+                rgba(
+                    191,
+                    200,
+                    203,
+                    0.40
+                );
+
+            font-family:
+                "JetBrainsMono Nerd Font";
+
+            font-size: 8px;
+        }}
+
+
+        /* ====================================================
+           CONNECTION HOVER TEXT
+           ==================================================== */
+
+        .connection-title {{
+            color: {TEXT};
+
+            font-family:
+                "JetBrainsMono Nerd Font";
+
+            font-size: 8px;
+
+            font-weight: 700;
+        }}
+
+
+        .connection-status {{
+            color:
+                rgba(
+                    191,
+                    200,
+                    203,
+                    0.52
+                );
+
+            font-family:
+                "JetBrainsMono Nerd Font";
+
+            font-size: 7px;
+        }}
+
+
+        /* ====================================================
+           MUSIC
+           ==================================================== */
+
+        #music-bar {{
+            background:
+                linear-gradient(
+                    90deg,
+                    rgba(
+                        133,
+                        210,
+                        231,
+                        0.085
+                    ),
+                    rgba(
+                        198,
+                        175,
+                        216,
+                        0.065
+                    )
+                );
+
+            border:
+                1px solid
+                rgba(
+                    133,
+                    210,
+                    231,
+                    0.16
+                );
+
+            border-radius: 10px;
+
+            padding:
+                5px 7px;
+        }}
+
+
+        #music-bar:hover {{
+            background:
+                rgba(
+                    133,
+                    210,
+                    231,
+                    0.10
+                );
+
+            border-color:
+                rgba(
+                    133,
+                    210,
+                    231,
+                    0.25
+                );
+        }}
+
+
+        .music-icon {{
+            color: {ACCENT};
+
+            font-family:
+                "JetBrainsMono Nerd Font";
+
+            font-size: 13px;
+        }}
+
+
+        .music-track {{
+            color:
+                rgba(
+                    222,
+                    227,
+                    229,
+                    0.75
+                );
+
+            font-family:
+                "JetBrainsMono Nerd Font";
+
+            font-size: 8px;
+        }}
+
+
+        #music-play {{
+            color: {ACCENT};
+
+            background:
+                rgba(
+                    133,
+                    210,
+                    231,
+                    0.07
+                );
+
+            border-radius: 50%;
+
+            padding: 2px 5px;
+        }}
+
+
+        #music-play:hover {{
+            background:
+                rgba(
+                    133,
+                    210,
+                    231,
+                    0.16
+                );
+        }}
+
+
+        /* ====================================================
+           APPS
+           ==================================================== */
+
+        .app-button {{
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.025
+                );
+
+            border:
+                1px solid
+                rgba(
+                    222,
+                    227,
+                    229,
+                    0.06
+                );
+
+            border-radius: 11px;
+
+            padding:
+                6px 3px;
+        }}
+
+
+        .app-button:hover {{
+            background:
+                rgba(
+                    133,
+                    210,
+                    231,
+                    0.09
+                );
+
+            border-color:
+                rgba(
+                    133,
+                    210,
+                    231,
+                    0.25
+                );
+        }}
+
+
+        .app-circle {{
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.055
+                );
+
+            border:
+                1px solid
+                rgba(
+                    222,
+                    227,
+                    229,
+                    0.10
+                );
+
+            border-radius: 50%;
+        }}
+
+
+        .app-button:hover .app-circle {{
+            background:
+                rgba(
+                    133,
+                    210,
+                    231,
+                    0.12
+                );
+
+            border-color:
+                rgba(
+                    133,
+                    210,
+                    231,
+                    0.30
+                );
+        }}
+
+
+        .app-label {{
+            color:
+                rgba(
+                    222,
+                    227,
+                    229,
+                    0.58
+                );
+
+            font-family:
+                "JetBrainsMono Nerd Font";
+
+            font-size: 7px;
+        }}
+
+        """
+
+        provider = Gtk.CssProvider()
+
+        provider.load_from_data(
+            css.encode()
+        )
+
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(),
+            provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+
+
+    # ========================================================
+    # BUILD PANEL
+    # ========================================================
+
+    def build_panel(self):
+
+        panel = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=8,
+        )
+
+        panel.set_name(
+            "capsule-panel"
+        )
+
+        panel.set_size_request(
+            WIDTH,
+            -1,
+        )
+
+
+        # ====================================================
+        # HEADER
+        # ====================================================
+
+        header = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+        )
+
+
+        profile = Gtk.DrawingArea()
+
+        profile.set_size_request(
+            32,
+            32,
+        )
+
+        profile.set_name(
+            "profile"
+        )
+
+
+        profile_pixbuf = None
+
+        if PROFILE.exists():
+
+            try:
+
+                profile_pixbuf = (
+                    GdkPixbuf.Pixbuf.new_from_file(
+                        str(PROFILE)
+                    )
+                )
+
+                profile_pixbuf = (
+                    profile_pixbuf.scale_simple(
+                        32,
+                        32,
+                        GdkPixbuf.InterpType.BILINEAR,
+                    )
+                )
+
+            except Exception:
+                profile_pixbuf = None
+
+
+        def draw_profile(widget, cr):
+
+            allocation = (
+                widget.get_allocation()
+            )
+
+            size = min(
+                allocation.width,
+                allocation.height,
+            )
+
+            cr.arc(
+                size / 2,
+                size / 2,
+                size / 2,
+                0,
+                2 * math.pi,
+            )
+
+            cr.clip()
+
+            if profile_pixbuf:
+
+                Gdk.cairo_set_source_pixbuf(
+                    cr,
+                    profile_pixbuf,
+                    0,
+                    0,
+                )
+
+                cr.paint()
+
+            else:
+
+                cr.set_source_rgba(
+                    0.52,
+                    0.82,
+                    0.91,
+                    0.20,
+                )
+
+                cr.paint()
+
+
+        profile.connect(
+            "draw",
+            draw_profile,
+        )
+
+
+        header.pack_start(
+            profile,
+            False,
+            False,
+            0,
+        )
+
+
+        title_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=1,
+        )
+
+
+        title = Gtk.Label(
+            label="OUTLAW"
+        )
+
+        title.set_name(
+            "title"
+        )
+
+        title.set_xalign(
+            0
+        )
+
+
+        subtitle = Gtk.Label(
+            label="SYSTEM CAPSULE"
+        )
+
+        subtitle.set_name(
+            "subtitle"
+        )
+
+        subtitle.set_xalign(
+            0
+        )
+
+
+        title_box.pack_start(
+            title,
+            False,
+            False,
+            0,
+        )
+
+        title_box.pack_start(
+            subtitle,
+            False,
+            False,
+            0,
+        )
+
+
+        header.pack_start(
+            title_box,
+            True,
+            True,
+            0,
+        )
+
+
+        panel.pack_start(
+            header,
+            False,
+            False,
+            0,
+        )
+
+
+        # ====================================================
+        # SYSTEM
+        # ====================================================
+
+        system_label = Gtk.Label(
+            label="SYSTEM"
+        )
+
+        system_label.set_name(
+            "section-label"
+        )
+
+        system_label.set_xalign(
+            0
+        )
+
+
+        panel.pack_start(
+            system_label,
+            False,
+            False,
+            0,
+        )
+
+
+        indicators = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=2,
+        )
+
+
+        self.volume = CircularIndicator(
+            "VOLUME",
+            "󰕾",
+            ACCENT,
+            52,
+            True,
+        )
+
+        self.cpu = CircularIndicator(
+            "CPU",
+            "󰻠",
+            ACCENT,
+            52,
+        )
+
+        self.ram = CircularIndicator(
+            "RAM",
+            "󰍛",
+            ACCENT,
+            52,
+        )
+
+        self.battery = CircularIndicator(
+            "BATTERY",
+            "󰁹",
+            PURPLE,
+            52,
+        )
+
+        self.brightness = CircularIndicator(
+            "BRIGHTNESS",
+            "󰃠",
+            PURPLE,
+            52,
+            True,
+        )
+
+
+        for item in [
+            self.volume,
+            self.cpu,
+            self.ram,
+            self.battery,
+            self.brightness,
+        ]:
+
+            indicators.pack_start(
+                item,
+                True,
+                True,
+                0,
+            )
+
+
+        panel.pack_start(
+            indicators,
+            False,
+            False,
+            0,
+        )
+
+
+        # ====================================================
+        # CONNECTION
+        # ====================================================
+
+        connection_label = Gtk.Label(
+            label="CONNECTION"
+        )
+
+        connection_label.set_name(
+            "section-label"
+        )
+
+        connection_label.set_xalign(
+            0
+        )
+
+
+        panel.pack_start(
+            connection_label,
+            False,
+            False,
+            0,
+        )
+
+
+        connection_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=7,
+        )
+
+
+        self.wifi = CircularIndicator(
+            "WIFI",
+            "󰖩",
+            ACCENT,
+            48,
+        )
+
+
+        self.bluetooth = CircularIndicator(
+            "BLUETOOTH",
+            "󰂯",
+            PURPLE,
+            48,
+        )
+
+
+        self.wifi_item = ConnectionItem(
+            self.wifi,
+            "󰖩",
+            "Wi-Fi",
+        )
+
+
+        self.bluetooth_item = ConnectionItem(
+            self.bluetooth,
+            "󰂯",
+            "Bluetooth",
+        )
+
+
+        connection_box.pack_start(
+            self.wifi_item,
+            False,
+            False,
+            0,
+        )
+
+
+        connection_box.pack_start(
+            self.bluetooth_item,
+            False,
+            False,
+            0,
+        )
+
+
+        panel.pack_start(
+            connection_box,
+            False,
+            False,
+            0,
+        )
+
+
+        # ====================================================
+        # MUSIC BAR
+        # ====================================================
+
+        self.music = MusicBar()
+
+
+        panel.pack_start(
+            self.music,
+            False,
+            False,
+            0,
+        )
+
+
+        # ====================================================
+        # APPLICATIONS
+        # ====================================================
+
+        apps_label = Gtk.Label(
+            label="APPLICATIONS"
+        )
+
+        apps_label.set_name(
+            "section-label"
+        )
+
+        apps_label.set_xalign(
+            0
+        )
+
+
+        panel.pack_start(
+            apps_label,
+            False,
+            False,
+            0,
+        )
+
+
+        apps = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=4,
+        )
+
+
+        definitions = [
+
+            (
+                "Spotify",
+                [
+                    "spotify.desktop",
+                    "spotify",
+                ],
+                "spotify",
+                "multimedia-player",
+            ),
+
+            (
+                "VS Code",
+                [
+                    "code.desktop",
+                    "visual-studio-code.desktop",
+                    "com.visualstudio.code.desktop",
+                ],
+                "code",
+                "text-editor",
+            ),
+
+            (
+                "Chrome",
+                [
+                    "google-chrome.desktop",
+                    "google-chrome-stable.desktop",
+                    "com.google.Chrome.desktop",
+                ],
+                "google-chrome-stable || google-chrome",
+                "web-browser",
+            ),
+
+            (
+                "ChatGPT",
+                [
+                    "chatgpt.desktop",
+                    "com.openai.chatgpt.desktop",
+                    "com.openai.ChatGPT.desktop",
+                    "ChatGPT.desktop",
+                ],
+                (
+                    "if command -v "
+                    "google-chrome-stable "
+                    "> /dev/null 2>&1; then "
+                    "google-chrome-stable "
+                    "--app='https://chatgpt.com'; "
+                    "elif command -v "
+                    "google-chrome "
+                    "> /dev/null 2>&1; then "
+                    "google-chrome "
+                    "--app='https://chatgpt.com'; "
+                    "else "
+                    "xdg-open "
+                    "'https://chatgpt.com'; fi"
+                ),
+                "chat",
+            ),
+        ]
+
+
+        for (
+            name,
+            candidates,
+            fallback,
+            fallback_icon,
+        ) in definitions:
+
+
+            button = Gtk.Button()
+
+            button.set_relief(
+                Gtk.ReliefStyle.NONE
+            )
+
+            button.set_name(
+                "app-button"
+            )
+
+
+            content = Gtk.Box(
+                orientation=Gtk.Orientation.VERTICAL,
+                spacing=3,
+            )
+
+
+            circle = Gtk.EventBox()
+
+            circle.set_name(
+                "app-circle"
+            )
+
+            circle.set_size_request(
+                40,
+                40,
+            )
+
+
+            app = find_desktop_app(
+                candidates
+            )
+
+
+            if app:
+
+                try:
+                    icon = app.get_icon()
+                except Exception:
+                    icon = None
+
+                if icon:
+
+                    image = (
+                        Gtk.Image.new_from_gicon(
+                            icon,
+                            Gtk.IconSize.DIALOG,
+                        )
+                    )
+
+                else:
+
+                    image = (
+                        Gtk.Image.new_from_icon_name(
+                            fallback_icon,
+                            Gtk.IconSize.DIALOG,
+                        )
+                    )
+
+            else:
+
+                image = (
+                    Gtk.Image.new_from_icon_name(
+                        fallback_icon,
+                        Gtk.IconSize.DIALOG,
+                    )
+                )
+
+
+            image.set_pixel_size(
+                21
+            )
+
+
+            circle.add(
+                image
+            )
+
+
+            label = Gtk.Label(
+                label=name
+            )
+
+            label.set_name(
+                "app-label"
+            )
+
+
+            content.pack_start(
+                circle,
+                False,
+                False,
+                0,
+            )
+
+            content.pack_start(
+                label,
+                False,
+                False,
+                0,
+            )
+
+
+            button.add(
+                content
+            )
+
+
+            button.connect(
+                "clicked",
+                lambda
+                _,
+                c=candidates,
+                f=fallback:
+                    self.launch_app(
+                        c,
+                        f,
+                    ),
+            )
+
+
+            apps.pack_start(
+                button,
+                True,
+                True,
+                0,
+            )
+
+
+        panel.pack_start(
+            apps,
+            False,
+            False,
+            0,
+        )
+
+
+        return panel
+
+
+    # ========================================================
+    # APP LAUNCH
+    # ========================================================
+
+    def launch_app(
+        self,
+        candidates,
+        fallback,
+    ):
+
+        launch_app(
+            candidates,
+            fallback,
+        )
+
+        GLib.timeout_add(
+            120,
+            self.close,
+        )
+
+
+    # ========================================================
+    # SYSTEM UPDATE
+    # ========================================================
+
+    def update_system(self):
+
+        try:
+
+            volume = get_volume()
+
+            self.volume.set_value(
+                volume / 100
+            )
+
+
+            if muted():
+
+                self.volume.icon.set_text(
+                    "󰝟"
+                )
+
+            elif volume <= 30:
+
+                self.volume.icon.set_text(
+                    "󰕿"
+                )
+
+            elif volume <= 70:
+
+                self.volume.icon.set_text(
+                    "󰖀"
+                )
+
+            else:
+
+                self.volume.icon.set_text(
+                    "󰕾"
+                )
+
+
+            cpu = psutil.cpu_percent(
+                interval=None
+            )
+
+            self.cpu.set_value(
+                cpu / 100
+            )
+
+
+            ram = (
+                psutil.virtual_memory()
+                .percent
+            )
+
+            self.ram.set_value(
+                ram / 100
+            )
+
+
+            battery = (
+                psutil.sensors_battery()
+            )
+
+            if battery:
+
+                self.battery.set_value(
+                    battery.percent / 100
+                )
+
+                if battery.power_plugged:
+
+                    self.battery.icon.set_text(
+                        "󰂄"
+                    )
+
+                elif battery.percent >= 80:
+
+                    self.battery.icon.set_text(
+                        "󰂂"
+                    )
+
+                elif battery.percent >= 50:
+
+                    self.battery.icon.set_text(
+                        "󰁿"
+                    )
+
+                elif battery.percent >= 20:
+
+                    self.battery.icon.set_text(
+                        "󰁽"
+                    )
+
+                else:
+
+                    self.battery.icon.set_text(
+                        "󰁺"
+                    )
+
+
+            brightness = get_brightness()
+
+            self.brightness.set_value(
+                self.get_brightness_percent()))
+
+
+        except Exception:
+            pass
+
+
+        return True
+
+
+    # ========================================================
+    # CONNECTION UPDATE
+    # ========================================================
+
+    def update_connection(self):
+
+        try:
+
+            connected, name, signal = (
+                get_wifi()
+            )
+
+
+            self.wifi_item.update(
+                connected,
+                signal / 100,
+                name,
+            )
+
+
+            bt_connected, bt_name, bt_signal = (
+                get_bluetooth()
+            )
+
+
+            self.bluetooth_item.update(
+                bt_connected,
+                bt_signal / 100,
+                bt_name,
+            )
+
+
+        except Exception:
+            pass
+
+
+        return True
+
+
+    # ========================================================
+    # MUSIC UPDATE
+    # ========================================================
+
+    def update_music(self):
+
+        try:
+            self.music.update()
+        except Exception:
+            pass
+
+        return True
+
+
+    # ========================================================
+    # OPEN
+    # ========================================================
+
+    def open(self):
+
+        self.revealer.set_reveal_child(
+            True
+        )
+
+        return False
+
+
+    # ========================================================
+    # CLOSE
+    # ========================================================
+
+    def close(self):
+
+        self.revealer.set_reveal_child(
+            False
+        )
+
+        GLib.timeout_add(
+            230,
+            self.destroy,
+        )
+
+        return False
+
+
+    # ========================================================
+    # DESTROY
+    # ========================================================
+
+    def destroyed(self, *_):
+
+        cleanup_lock()
+
+        try:
+            Gtk.main_quit()
+        except Exception:
+            pass
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+try:
+
+    capsule = Capsule()
+
+    Gtk.main()
+
+finally:
+
+    cleanup_lock()
+

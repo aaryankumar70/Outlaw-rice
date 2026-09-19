@@ -85,4 +85,28 @@
     }
   },
 
+{
+  "layer": "overlay",
+  "position": "top",
+  "height": 1,
+
+  "exclusive": false,
+  "passthrough": false,
+
+  "margin-top": 10,
+
+  "modules-left": [],
+  "modules-center": [
+    "custom/capsule-menu"
+  ],
+  "modules-right": [],
+
+  "custom/capsule-menu": {
+    "exec": "~/.local/bin/capsule-content",
+    "return-type": "json",
+    "interval": 1,
+    "on-click": "",
+    "escape": true
+  }
+}
 ]

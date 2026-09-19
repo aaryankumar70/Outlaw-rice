@@ -1,37 +1,37 @@
-@define-color background #0f1511;
-@define-color background_alt #1b211d;
+@define-color background #0f1416;
+@define-color background_alt #1b2023;
 
-@define-color surface #0f1511;
-@define-color surface_dim #0f1511;
-@define-color surface_bright #353b37;
-@define-color surface_container_low #171d19;
-@define-color surface_container #1b211d;
-@define-color surface_container_high #262b28;
-@define-color surface_container_highest #303632;
+@define-color surface #0f1416;
+@define-color surface_dim #0f1416;
+@define-color surface_bright #353a3c;
+@define-color surface_container_low #171c1f;
+@define-color surface_container #1b2023;
+@define-color surface_container_high #252b2d;
+@define-color surface_container_highest #303638;
 
-@define-color foreground #dee4de;
-@define-color foreground_variant #c0c9c1;
+@define-color foreground #dee3e6;
+@define-color foreground_variant #bfc8cc;
 
-@define-color accent #8ed5b1;
-@define-color accent_alt #b4ccbd;
+@define-color accent #87d1eb;
+@define-color accent_alt #b3cad4;
 
-@define-color primary #8ed5b1;
-@define-color primary_container #005236;
-@define-color on_primary #003824;
-@define-color on_primary_container #aaf2cc;
+@define-color primary #87d1eb;
+@define-color primary_container #004e60;
+@define-color on_primary #003543;
+@define-color on_primary_container #b6ebff;
 
-@define-color secondary #b4ccbd;
-@define-color secondary_container #364b40;
-@define-color on_secondary #20352a;
-@define-color on_secondary_container #d0e9d8;
+@define-color secondary #b3cad4;
+@define-color secondary_container #344a52;
+@define-color on_secondary #1e333b;
+@define-color on_secondary_container #cfe6f0;
 
-@define-color tertiary #a5cdde;
-@define-color tertiary_container #244c5a;
-@define-color on_tertiary #063543;
-@define-color on_tertiary_container #c0e9fb;
+@define-color tertiary #c2c3eb;
+@define-color tertiary_container #424465;
+@define-color on_tertiary #2c2e4d;
+@define-color on_tertiary_container #e0e0ff;
 
-@define-color border #8a938c;
-@define-color outline_variant #404943;
+@define-color border #8a9296;
+@define-color outline_variant #40484c;
 
 @define-color error #ffb4ab;
 @define-color error_container #93000a;
