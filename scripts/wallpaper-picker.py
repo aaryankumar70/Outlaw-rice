@@ -1,1054 +1,1068 @@
 #!/usr/bin/env python3
 
-import subprocess
+import os
 import re
+import math
+import hashlib
+import threading
+import subprocess
+from string import Template
 from pathlib import Path
 
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
+gi.require_version("PangoCairo", "1.0")
+from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Pango, PangoCairo
 
+import cairo
+
+
+# ---------------------------------------------------------
+# Config
+# ---------------------------------------------------------
 
 ROOT = Path.home() / "Pictures" / "Wallpapers"
 CTL = Path.home() / "outlaw-rice" / "scripts" / "wallpaperctl"
 
-EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
-WINDOW_W = 900
-WINDOW_H = 260
+WINDOW_W = 853
+WINDOW_H = 200
+
+CACHE_DIR = (
+    Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    / "wallpaper-picker"
+)
+
+# Thumbnails are decoded once at 2x the largest card, then cairo
+# scales them down per frame. Nothing bigger is ever kept in RAM.
+THUMB_W = 500
+THUMB_H = 284
+
+# How many decoded thumbnails stay resident.
+CACHE_LIMIT = 40
+
+# The carousel canvas. Cards span x 5..820, so this is exactly the
+# content width with a small even gutter on each side.
+CANVAS_W = 825
+CANVAS_H = 172
+CANVAS_CX = 412.5
+
+# Baseline y for the caption row under the carousel.
+CAPTION_Y = 154.0
+
+# Animation feel. Lower TAU = snappier.
+TAU = 0.075
+LOADER_THREADS = 3
 
 
-CSS = b"""
+# ---------------------------------------------------------
+# Palette
+# ---------------------------------------------------------
+
+DEFAULTS = {
+    "surface": "#0f1416",
+    "surface_container": "#1b2022",
+    "surface_container_low": "#171c1e",
+    "foreground": "#dee3e5",
+    "foreground_variant": "#bfc8cb",
+    "primary": "#85d2e7",
+    "primary_container": "#004e5c",
+    "outline_variant": "#3f484b",
+}
+
+
+CSS_TEMPLATE = Template("""
 window {
-    background-color: rgba(15, 20, 22, 0.72);
-    border: 1px solid rgba(137, 146, 149, 0.55);
-    border-radius: 8px;
+    background-color: $window_bg;
+    border: 1px solid $window_border;
+    border-radius: 12px;
 }
 
-#search {
-    background-color: rgba(27, 32, 34, 0.58);
-    color: #dee3e5;
-    border: 1px solid rgba(137, 146, 149, 0.45);
-    border-radius: 1px;
-    padding: 4px 6px;
-    font-size: 11px;
-}
-
-#search:focus {
-    border-color: #85d2e7;
-    box-shadow: none;
-}
 
 #carousel {
     background: transparent;
 }
+""")
 
-#card {
-    background-color: rgba(23, 28, 30, 0.38);
-    border: 1px solid rgba(63, 72, 75, 0.70);
-    border-radius: 2px;
-}
 
-#card-selected {
-    background-color: rgba(0, 78, 92, 0.55);
-    border: 1px solid #85d2e7;
-    border-radius: 2px;
-}
-
-#empty {
-    color: #bfc8cb;
-    font-size: 11px;
-}
-"""
-
-def palette_css():
-
-    css = CSS
+def load_palette():
+    colors = dict(DEFAULTS)
 
     try:
+        text = (
+            Path.home() / ".config" / "waybar" / "colors.css"
+        ).read_text()
 
-        colors_file = (
-            Path.home()
-            / ".config"
-            / "waybar"
-            / "colors.css"
+        found = re.findall(
+            r"@define-color\s+([\w-]+)\s+(#[0-9a-fA-F]{6})\s*;",
+            text,
         )
 
-        text = colors_file.read_text()
-
-        colors = dict(
-            re.findall(
-                r"@define-color\s+(\w+)\s+(#[0-9a-fA-F]{6});",
-                text
-            )
-        )
-
-        background = colors.get(
-            "surface",
-            "#0f1416"
-        )
-
-        surface_container = colors.get(
-            "surface_container",
-            "#1b2022"
-        )
-
-        surface_low = colors.get(
-            "surface_container_low",
-            "#171c1e"
-        )
-
-        foreground = colors.get(
-            "foreground",
-            "#dee3e5"
-        )
-
-        foreground_variant = colors.get(
-            "foreground_variant",
-            "#bfc8cb"
-        )
-
-        primary = colors.get(
-            "primary",
-            "#85d2e7"
-        )
-
-        primary_container = colors.get(
-            "primary_container",
-            "#004e5c"
-        )
-
-        outline = colors.get(
-            "outline_variant",
-            "#3f484b"
-        )
-
-
-        def rgba(hex_color, alpha):
-
-            hex_color = hex_color.lstrip("#")
-
-            r = int(hex_color[0:2], 16)
-            g = int(hex_color[2:4], 16)
-            b = int(hex_color[4:6], 16)
-
-            return (
-                f"rgba({r}, {g}, {b}, {alpha})"
-            )
-
-
-        # Container
-        css = css.replace(
-            b"rgba(15, 20, 22, 0.72)",
-            rgba(background, 0.72).encode()
-        )
-
-
-        # Container border
-        css = css.replace(
-            b"rgba(137, 146, 149, 0.55)",
-            rgba(outline, 0.55).encode()
-        )
-
-
-        # Search background
-        css = css.replace(
-            b"rgba(27, 32, 34, 0.58)",
-            rgba(surface_container, 0.58).encode()
-        )
-
-
-        # Search text
-        css = css.replace(
-            b"#dee3e5",
-            foreground.encode()
-        )
-
-
-        # Search border
-        css = css.replace(
-            b"rgba(137, 146, 149, 0.45)",
-            rgba(outline, 0.45).encode()
-        )
-
-
-        # Search focus
-        css = css.replace(
-            b"#85d2e7",
-            primary.encode()
-        )
-
-
-        # Normal cards
-        css = css.replace(
-            b"rgba(23, 28, 30, 0.38)",
-            rgba(surface_low, 0.38).encode()
-        )
-
-
-        # Normal card border
-        css = css.replace(
-            b"rgba(63, 72, 75, 0.70)",
-            rgba(outline, 0.70).encode()
-        )
-
-
-        # Selected card
-        css = css.replace(
-            b"rgba(0, 78, 92, 0.55)",
-            rgba(primary_container, 0.55).encode()
-        )
-
-
-        # Selected border
-        css = css.replace(
-            b"#85d2e7",
-            primary.encode()
-        )
-
-
-        # Empty text
-        css = css.replace(
-            b"#bfc8cb",
-            foreground_variant.encode()
-        )
-
+        for name, value in found:
+            colors[name.replace("-", "_")] = value
 
     except Exception:
         pass
 
-    return css
-class WallpaperCard:
+    return colors
 
-    def __init__(self, path, callback):
 
-        self.path = path
+def rgb(hex_color):
+    hex_color = hex_color.lstrip("#")
 
-        self.event = Gtk.EventBox()
+    return (
+        int(hex_color[0:2], 16) / 255.0,
+        int(hex_color[2:4], 16) / 255.0,
+        int(hex_color[4:6], 16) / 255.0,
+    )
 
-        self.event.set_name(
-            "card"
-        )
 
-        self.image = Gtk.Image()
+def rgba_css(hex_color, alpha):
+    r, g, b = rgb(hex_color)
 
-        self.event.add(
-            self.image
-        )
+    return "rgba(%d, %d, %d, %s)" % (
+        round(r * 255),
+        round(g * 255),
+        round(b * 255),
+        alpha,
+    )
 
-        self.event.connect(
-            "button-press-event",
-            callback,
-            self.path
-        )
 
-        self.original = None
+def palette_css(colors):
+    return CSS_TEMPLATE.substitute(
+        window_bg=rgba_css(colors["surface"], 0.78),
+        window_border=rgba_css(colors["outline_variant"], 0.50),
+    ).encode()
+
+
+# ---------------------------------------------------------
+# Thumbnail store
+#
+# Decoding happens on worker threads, scaled down *during* decode,
+# and the result is cached on disk. The UI thread never touches a
+# full resolution image.
+# ---------------------------------------------------------
+
+class ThumbStore:
+
+    def __init__(self, on_ready):
+        self.on_ready = on_ready
+
+        self.surfaces = {}
+        self.order = []
+        self.failed = set()
+        self.pending = set()
+        self.stack = []
+
+        self.cond = threading.Condition()
 
         try:
-
-            self.original = (
-                GdkPixbuf.Pixbuf.new_from_file(
-                    str(path)
-                )
-            )
-
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
         except Exception:
-
             pass
 
+        for _ in range(LOADER_THREADS):
+            thread = threading.Thread(target=self._worker, daemon=True)
+            thread.start()
 
-    def set_geometry(
-        self,
-        width,
-        height,
-        selected=False
-    ):
+    # -- main thread ------------------------------------------------
 
-        width = int(width)
-        height = int(height)
+    def get(self, path):
+        surface = self.surfaces.get(path)
 
-        self.event.set_size_request(
-            width,
-            height
+        if surface is not None:
+            if self.order and self.order[-1] != path:
+                try:
+                    self.order.remove(path)
+                except ValueError:
+                    pass
+                self.order.append(path)
+
+            return surface
+
+        if path not in self.failed:
+            self.request(path)
+
+        return None
+
+    def request(self, path):
+        with self.cond:
+            if path in self.pending or path in self.surfaces:
+                return
+
+            if path in self.failed:
+                return
+
+            self.pending.add(path)
+            self.stack.append(path)
+            self.cond.notify()
+
+    def _deliver(self, path, pixbuf):
+        with self.cond:
+            self.pending.discard(path)
+
+        if pixbuf is None:
+            self.failed.add(path)
+            return False
+
+        try:
+            surface = Gdk.cairo_surface_create_from_pixbuf(pixbuf, 1, None)
+        except Exception:
+            self.failed.add(path)
+            return False
+
+        self.surfaces[path] = surface
+        self.order.append(path)
+
+        while len(self.order) > CACHE_LIMIT:
+            oldest = self.order.pop(0)
+
+            if oldest not in self.order:
+                self.surfaces.pop(oldest, None)
+
+        self.on_ready()
+
+        return False
+
+    # -- worker threads ---------------------------------------------
+
+    def _worker(self):
+        while True:
+            with self.cond:
+                while not self.stack:
+                    self.cond.wait()
+
+                # LIFO: whatever the carousel asked for most recently
+                # is what is on screen right now.
+                path = self.stack.pop()
+
+            pixbuf = None
+
+            try:
+                pixbuf = self._load(path)
+            except Exception:
+                pixbuf = None
+
+            GLib.idle_add(
+                self._deliver,
+                path,
+                pixbuf,
+                priority=GLib.PRIORITY_DEFAULT_IDLE,
+            )
+
+    def _cache_file(self, path):
+        try:
+            stat = path.stat()
+            key = "%s|%s|%s|%sx%s" % (
+                path,
+                stat.st_mtime_ns,
+                stat.st_size,
+                THUMB_W,
+                THUMB_H,
+            )
+        except OSError:
+            key = str(path)
+
+        digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
+
+        return CACHE_DIR / (digest + ".png")
+
+    def _load(self, path):
+        cache_file = self._cache_file(path)
+
+        if cache_file.exists():
+            try:
+                return GdkPixbuf.Pixbuf.new_from_file(str(cache_file))
+            except Exception:
+                pass
+
+        pixbuf = self._decode_scaled(path)
+
+        if pixbuf is None:
+            return None
+
+        pixbuf = self._crop_center(pixbuf)
+
+        try:
+            tmp = cache_file.with_suffix(".%d.tmp" % os.getpid())
+            pixbuf.savev(str(tmp), "png", [], [])
+            os.replace(str(tmp), str(cache_file))
+        except Exception:
+            pass
+
+        return pixbuf
+
+    def _decode_scaled(self, path):
+        """Ask the image loader to scale while decoding.
+
+        For JPEG this uses DCT scaling, so a 4K wallpaper is decoded
+        roughly 8x faster than loading it at full size and shrinking
+        afterwards.
+        """
+
+        source_w = source_h = 0
+
+        try:
+            info = GdkPixbuf.Pixbuf.get_file_info(str(path))
+
+            if info and info[0] is not None:
+                source_w, source_h = info[1], info[2]
+        except Exception:
+            pass
+
+        if source_w > 0 and source_h > 0:
+            if source_w * THUMB_H >= source_h * THUMB_W:
+                # wider than the card: bind on height
+                return GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                    str(path), -1, THUMB_H, True
+                )
+
+            return GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                str(path), THUMB_W, -1, True
+            )
+
+        return GdkPixbuf.Pixbuf.new_from_file(str(path))
+
+    def _crop_center(self, pixbuf):
+        width = pixbuf.get_width()
+        height = pixbuf.get_height()
+
+        if width <= 0 or height <= 0:
+            return pixbuf
+
+        crop_w = min(width, max(1, int(round(height * THUMB_W / THUMB_H))))
+        crop_h = min(height, max(1, int(round(width * THUMB_H / THUMB_W))))
+
+        if width * THUMB_H >= height * THUMB_W:
+            crop_h = height
+        else:
+            crop_w = width
+
+        x = max(0, (width - crop_w) // 2)
+        y = max(0, (height - crop_h) // 2)
+
+        cropped = pixbuf.new_subpixbuf(x, y, crop_w, crop_h)
+
+        if crop_w == THUMB_W and crop_h == THUMB_H:
+            return cropped
+
+        scaled = cropped.scale_simple(
+            THUMB_W, THUMB_H, GdkPixbuf.InterpType.BILINEAR
         )
 
-        if selected:
+        return scaled or cropped
 
-            self.event.set_name(
-                "card-selected"
+
+# ---------------------------------------------------------
+# Carousel geometry
+# ---------------------------------------------------------
+
+#      0        1         2         3        4
+#    small   medium   SELECTED   medium   small
+SLOTS = (
+    (5.0, 43.0, 115.0, 78.0),
+    (125.0, 27.0, 155.0, 106.0),
+    (285.0, 7.0, 250.0, 142.0),
+    (545.0, 27.0, 155.0, 106.0),
+    (705.0, 43.0, 115.0, 78.0),
+)
+
+
+def geometry_at(t):
+    """Continuous version of the five fixed slots.
+
+    t == 2.0 is the selected card. Values in between are interpolated,
+    values outside are extrapolated so cards slide off screen cleanly.
+    """
+
+    if t <= 0.0:
+        a, b, f = SLOTS[0], SLOTS[1], t
+    elif t >= 4.0:
+        a, b, f = SLOTS[3], SLOTS[4], t - 3.0
+    else:
+        i = int(t)
+        a, b, f = SLOTS[i], SLOTS[i + 1], t - i
+
+    return (
+        a[0] + (b[0] - a[0]) * f,
+        a[1] + (b[1] - a[1]) * f,
+        a[2] + (b[2] - a[2]) * f,
+        a[3] + (b[3] - a[3]) * f,
+    )
+
+
+def edge_alpha(t):
+    if t < 0.0:
+        return max(0.0, 1.0 + t)
+
+    if t > 4.0:
+        return max(0.0, 1.0 - (t - 4.0))
+
+    return 1.0
+
+
+SHADOW_LAYERS = (
+    (7.0, 0.035),
+    (4.0, 0.050),
+    (1.5, 0.070),
+)
+
+
+def rounded_rect(cr, x, y, w, h, r):
+    if r <= 0.0 or w <= 2 * r or h <= 2 * r:
+        cr.rectangle(x, y, w, h)
+        return
+
+    cr.new_sub_path()
+    cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+    cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+    cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+    cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+    cr.close_path()
+
+
+# ---------------------------------------------------------
+# Carousel
+#
+# One drawing area for the whole strip. No widgets are created,
+# destroyed or re-laid-out while animating.
+# ---------------------------------------------------------
+
+class Carousel(Gtk.DrawingArea):
+
+    def __init__(self, colors, on_activate):
+        super().__init__()
+
+        self.set_name("carousel")
+
+        self.colors = colors
+        self.on_activate = on_activate
+
+        self.items = []
+        self.position = 0.0
+        self.target = 0
+        self.tick_id = 0
+        self.last_frame = 0
+        self.scroll_accum = 0.0
+
+        self.thumbs = ThumbStore(self.queue_draw)
+
+        self.card_bg = rgb(colors["surface_container_low"])
+        self.card_border = rgb(colors["outline_variant"])
+        self.sel_bg = rgb(colors["primary_container"])
+        self.sel_border = rgb(colors["primary"])
+        self.caption_color = rgb(colors["foreground_variant"])
+
+        self.font = Pango.FontDescription("Sans 7")
+        self.empty_font = Pango.FontDescription("Sans 8")
+
+        self.set_size_request(CANVAS_W, CANVAS_H)
+
+        self.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.SCROLL_MASK
+            | Gdk.EventMask.SMOOTH_SCROLL_MASK
+        )
+
+        self.connect("draw", self.on_draw)
+        self.connect("button-press-event", self.on_click)
+        self.connect("scroll-event", self.on_scroll)
+
+    # -- state -------------------------------------------------------
+
+    def set_items(self, items, keep=None):
+        self.items = items
+
+        if not items:
+            self.target = 0
+            self.position = 0.0
+            self.stop_tick()
+            self.queue_draw()
+            return
+
+        index = 0
+
+        if keep is not None:
+            try:
+                index = items.index(keep)
+            except ValueError:
+                index = 0
+
+        self.target = index
+        self.position = float(index)
+
+        self.stop_tick()
+        self.queue_draw()
+        self.prefetch()
+
+    def current(self):
+        if not self.items:
+            return None
+
+        return self.items[self.target % len(self.items)]
+
+    def move(self, step):
+        count = len(self.items)
+
+        if count < 2:
+            return
+
+        # The target keeps moving even mid-flight, so holding an arrow
+        # key glides instead of stuttering one card at a time.
+        self.target = (self.target + step) % count
+
+        self.start_tick()
+        self.prefetch()
+
+    def go_to(self, index):
+        count = len(self.items)
+
+        if count == 0:
+            return
+
+        index %= count
+
+        if index == self.target:
+            return
+
+        forward = (index - self.target) % count
+        backward = (self.target - index) % count
+
+        self.move(forward if forward <= backward else -backward)
+
+    # -- animation ---------------------------------------------------
+
+    def wrap_delta(self, value):
+        count = len(self.items)
+
+        if count == 0:
+            return 0.0
+
+        return (value + count / 2.0) % count - count / 2.0
+
+    def start_tick(self):
+        if self.tick_id:
+            return
+
+        self.last_frame = 0
+        self.tick_id = self.add_tick_callback(self.on_tick)
+
+    def stop_tick(self):
+        if self.tick_id:
+            self.remove_tick_callback(self.tick_id)
+            self.tick_id = 0
+
+    def on_tick(self, widget, clock):
+        now = clock.get_frame_time()
+
+        if self.last_frame == 0:
+            self.last_frame = now
+            self.queue_draw()
+            return True
+
+        dt = (now - self.last_frame) / 1_000_000.0
+        self.last_frame = now
+
+        dt = min(dt, 0.05)
+
+        delta = self.wrap_delta(self.target - self.position)
+
+        if abs(delta) < 0.0015:
+            self.position = float(self.target)
+            self.tick_id = 0
+            self.queue_draw()
+            return False
+
+        # Frame rate independent exponential ease-out.
+        self.position += delta * (1.0 - math.exp(-dt / TAU))
+
+        count = len(self.items)
+
+        if count:
+            self.position %= count
+
+        self.queue_draw()
+
+        return True
+
+    # -- layout ------------------------------------------------------
+
+    def visible_cards(self):
+        count = len(self.items)
+
+        if count == 0:
+            return []
+
+        base = int(round(self.position))
+        cards = []
+
+        for k in range(-4, 5):
+            t = 2.0 + (base + k) - self.position
+
+            if t <= -1.02 or t >= 5.02:
+                continue
+
+            index = (base + k) % count
+
+            cards.append((t, index))
+
+        return cards
+
+    def prefetch(self):
+        count = len(self.items)
+
+        if count == 0:
+            return
+
+        base = int(round(self.position))
+
+        for k in range(-6, 7):
+            self.thumbs.request(self.items[(base + k) % count])
+
+    # -- drawing -----------------------------------------------------
+
+    def on_draw(self, widget, cr):
+        cr.set_antialias(cairo.ANTIALIAS_DEFAULT)
+
+        if not self.items:
+            self.draw_empty(cr)
+            return False
+
+        cards = self.visible_cards()
+
+        # Back to front, so the selected card lands on top.
+        cards.sort(key=lambda item: -abs(item[0] - 2.0))
+
+        for t, index in cards:
+            self.draw_card(cr, t, index)
+
+        self.draw_caption(cr)
+
+        return False
+
+    def draw_card(self, cr, t, index):
+        x, y, w, h = geometry_at(t)
+
+        if w < 2.0 or h < 2.0:
+            return
+
+        alpha = edge_alpha(t)
+
+        if alpha <= 0.01:
+            return
+
+        distance = min(1.0, abs(t - 2.0))
+        focus = 1.0 - distance
+        lift = focus * focus
+
+        radius = 3.0 + 2.0 * focus
+
+        path = self.items[index]
+
+        # Soft drop shadow: three stacked rings, cheaper than a blur
+        # and indistinguishable at this size.
+        for spread, shade in SHADOW_LAYERS:
+            cr.set_source_rgba(
+                0.0, 0.0, 0.0,
+                shade * alpha * (0.45 + 0.55 * lift),
             )
 
-        else:
+            rounded_rect(
+                cr,
+                x - spread,
+                y - spread + 2.0 + 2.0 * lift,
+                w + 2.0 * spread,
+                h + 2.0 * spread,
+                radius + spread,
+            )
+            cr.fill()
 
-            self.event.set_name(
-                "card"
+        # Background plate, visible until the thumbnail lands
+        br, bg, bb = self.card_bg
+        sr, sg, sb = self.sel_bg
+
+        cr.set_source_rgba(
+            br + (sr - br) * focus,
+            bg + (sg - bg) * focus,
+            bb + (sb - bb) * focus,
+            (0.55 + 0.30 * focus) * alpha,
+        )
+
+        rounded_rect(cr, x, y, w, h, radius)
+        cr.fill()
+
+        # Artwork
+        surface = self.thumbs.get(path)
+
+        inset = 1.5
+        ix = x + inset
+        iy = y + inset
+        iw = w - 2.0 * inset
+        ih = h - 2.0 * inset
+
+        if surface is not None and iw > 0 and ih > 0:
+            sw = surface.get_width()
+            sh = surface.get_height()
+
+            if sw > 0 and sh > 0:
+                cr.save()
+
+                rounded_rect(cr, ix, iy, iw, ih, max(1.0, radius - 1.0))
+                cr.clip()
+
+                cr.save()
+                cr.translate(ix, iy)
+                cr.scale(iw / sw, ih / sh)
+                cr.set_source_surface(surface, 0, 0)
+
+                pattern = cr.get_source()
+                pattern.set_filter(cairo.FILTER_GOOD)
+                pattern.set_extend(cairo.EXTEND_PAD)
+
+                cr.paint_with_alpha(alpha)
+                cr.restore()
+
+                # Side cards recede into the dark instead of going
+                # transparent, so the window tint never shows through.
+                scrim = (1.0 - focus) * 0.50
+
+                if scrim > 0.004:
+                    cr.set_source_rgba(0.0, 0.0, 0.0, scrim * alpha)
+                    cr.paint()
+
+                cr.restore()
+
+        # Accent halo on the focused card
+        if lift > 0.02:
+            pr, pg, pb = self.sel_border
+
+            cr.set_source_rgba(pr, pg, pb, 0.16 * lift * alpha)
+            cr.set_line_width(2.0)
+            rounded_rect(cr, x - 1.5, y - 1.5, w + 3.0, h + 3.0, radius + 1.5)
+            cr.stroke()
+
+        # Border eases from outline to accent as the card centres
+        or_, og, ob = self.card_border
+        pr, pg, pb = self.sel_border
+
+        cr.set_source_rgba(
+            or_ + (pr - or_) * lift,
+            og + (pg - og) * lift,
+            ob + (pb - ob) * lift,
+            (0.65 + 0.35 * lift) * alpha,
+        )
+
+        cr.set_line_width(1.0)
+        rounded_rect(cr, x + 0.5, y + 0.5, w - 1.0, h - 1.0, radius)
+        cr.stroke()
+
+        # Hairline highlight along the top edge, adds a bit of glass
+        if lift > 0.02:
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.07 * lift * alpha)
+            cr.set_line_width(1.0)
+            cr.move_to(x + radius + 1.0, y + 1.5)
+            cr.line_to(x + w - radius - 1.0, y + 1.5)
+            cr.stroke()
+
+    def make_layout(self, cr, text, font, spacing=0):
+        layout = PangoCairo.create_layout(cr)
+        layout.set_font_description(font)
+        layout.set_text(text, -1)
+
+        if spacing:
+            try:
+                attrs = Pango.AttrList()
+                attrs.insert(Pango.attr_letter_spacing_new(spacing))
+                layout.set_attributes(attrs)
+            except Exception:
+                pass
+
+        return layout
+
+    def draw_caption(self, cr):
+        path = self.current()
+
+        if path is None:
+            return
+
+        settle = 1.0 - min(
+            1.0, abs(self.wrap_delta(self.target - self.position)) * 1.6
+        )
+
+        if settle <= 0.02:
+            return
+
+        settle = settle * settle
+
+        name = path.stem.replace("_", " ").replace("-", " ").strip()
+
+        layout = self.make_layout(cr, name.upper(), self.font, 900)
+        layout.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        layout.set_width(340 * Pango.SCALE)
+        layout.set_alignment(Pango.Alignment.CENTER)
+
+        width, height = layout.get_pixel_size()
+
+        r, g, b = self.caption_color
+
+        # Drifts up into place as the carousel settles.
+        top = CAPTION_Y + (1.0 - settle) * 4.0
+
+        cr.set_source_rgba(r, g, b, 0.78 * settle)
+        cr.move_to(CANVAS_CX - width / 2.0, top)
+        PangoCairo.show_layout(cr, layout)
+
+        # Thin accent rule under the name
+        pr, pg, pb = self.sel_border
+
+        rule = min(width * 0.55, 110.0)
+
+        if rule > 6.0:
+            cr.set_source_rgba(pr, pg, pb, 0.30 * settle)
+            cr.rectangle(CANVAS_CX - rule / 2.0, top + height + 4.0, rule, 1.0)
+            cr.fill()
+
+        # Position counter, right aligned in the empty gutter
+        count = len(self.items)
+
+        if count > 1:
+            counter = self.make_layout(
+                cr,
+                "%02d / %02d" % (self.target % count + 1, count),
+                self.font,
+                600,
             )
 
-        if self.original:
+            cwidth, cheight = counter.get_pixel_size()
 
-            target_w = max(
-                1,
-                width - 4
-            )
+            cr.set_source_rgba(r, g, b, 0.40 * settle)
+            cr.move_to(820.0 - cwidth, CAPTION_Y)
+            PangoCairo.show_layout(cr, counter)
 
-            target_h = max(
-                1,
-                height - 4
-            )
+    def draw_empty(self, cr):
+        layout = self.make_layout(
+            cr, "NO MATCHING WALLPAPERS", self.empty_font, 1200
+        )
 
-            source_w = (
-                self.original.get_width()
-            )
+        width, height = layout.get_pixel_size()
 
-            source_h = (
-                self.original.get_height()
-            )
+        r, g, b = self.caption_color
 
-            source_ratio = (
-                source_w / source_h
-            )
+        cr.set_source_rgba(r, g, b, 0.70)
+        cr.move_to(CANVAS_CX - width / 2.0, 62.0)
+        PangoCairo.show_layout(cr, layout)
 
-            target_ratio = (
-                target_w / target_h
-            )
+        hint = self.make_layout(cr, "try a different search", self.font, 0)
 
-            # Crop instead of stretching
-            if source_ratio > target_ratio:
+        hwidth, hheight = hint.get_pixel_size()
 
-                crop_w = int(
-                    source_h * target_ratio
-                )
+        cr.set_source_rgba(r, g, b, 0.35)
+        cr.move_to(CANVAS_CX - hwidth / 2.0, 62.0 + height + 6.0)
+        PangoCairo.show_layout(cr, hint)
 
-                crop_x = (
-                    source_w - crop_w
-                ) // 2
+    # -- input -------------------------------------------------------
 
-                cropped = (
-                    self.original.new_subpixbuf(
-                        crop_x,
-                        0,
-                        crop_w,
-                        source_h
-                    )
-                )
+    def on_click(self, widget, event):
+        if not self.items:
+            return True
 
-            else:
+        cards = self.visible_cards()
 
-                crop_h = int(
-                    source_w / target_ratio
-                )
+        # Front to back, so the top card wins overlapping hits.
+        cards.sort(key=lambda item: abs(item[0] - 2.0))
 
-                crop_y = (
-                    source_h - crop_h
-                ) // 2
+        for t, index in cards:
+            x, y, w, h = geometry_at(t)
 
-                cropped = (
-                    self.original.new_subpixbuf(
-                        0,
-                        crop_y,
-                        source_w,
-                        crop_h
-                    )
-                )
+            if x <= event.x <= x + w and y <= event.y <= y + h:
+                if index == self.target:
+                    self.on_activate()
+                else:
+                    self.go_to(index)
 
-            scaled = cropped.scale_simple(
-                target_w,
-                target_h,
-                GdkPixbuf.InterpType.BILINEAR
-            )
+                return True
 
-            self.image.set_from_pixbuf(
-                scaled
-            )
+        return True
 
+    def on_scroll(self, widget, event):
+        if event.direction == Gdk.ScrollDirection.SMOOTH:
+            ok, dx, dy = event.get_scroll_deltas()
+
+            if not ok:
+                return True
+
+            self.scroll_accum += dx + dy
+
+            while self.scroll_accum >= 1.0:
+                self.scroll_accum -= 1.0
+                self.move(1)
+
+            while self.scroll_accum <= -1.0:
+                self.scroll_accum += 1.0
+                self.move(-1)
+
+            return True
+
+        if event.direction in (
+            Gdk.ScrollDirection.DOWN,
+            Gdk.ScrollDirection.RIGHT,
+        ):
+            self.move(1)
+
+        elif event.direction in (
+            Gdk.ScrollDirection.UP,
+            Gdk.ScrollDirection.LEFT,
+        ):
+            self.move(-1)
+
+        return True
+
+
+# ---------------------------------------------------------
+# Window
+# ---------------------------------------------------------
 
 class Picker(Gtk.Window):
 
-    def __init__(self):
+    def __init__(self, colors):
+        super().__init__(type=Gtk.WindowType.TOPLEVEL)
 
-        super().__init__(
-            type=Gtk.WindowType.TOPLEVEL
-        )
+        self.colors = colors
 
-        self.set_title(
-            "Wallpaper Picker"
-        )
+        self.set_title("Wallpaper Picker")
 
         self.set_decorated(False)
         self.set_keep_above(True)
         self.set_skip_taskbar_hint(True)
+        self.set_type_hint(Gdk.WindowTypeHint.NORMAL)
 
-        self.set_type_hint(
-            Gdk.WindowTypeHint.NORMAL
-        )
-
-        self.set_default_size(
-            WINDOW_W,
-            WINDOW_H
-        )
-
+        self.set_default_size(WINDOW_W, WINDOW_H)
         self.set_resizable(False)
+        self.set_app_paintable(True)
 
-        # Transparent window surface
         screen = self.get_screen()
-
         visual = screen.get_rgba_visual()
 
         if visual:
+            self.set_visual(visual)
 
-            self.set_visual(
-                visual
-            )
+        self.connect("key-press-event", self.key)
+        self.connect("destroy", Gtk.main_quit)
 
-        self.connect(
-            "key-press-event",
-            self.key
-        )
-
-        self.files = sorted(
-            p
-            for p in ROOT.glob("**/*")
-            if p.is_file()
-            and p.suffix.lower() in EXTENSIONS
-        )
-
-        self.visible = self.files[:]
-
-        self.selected = 0
-
-        self.animating = False
-        self.animation_start = 0
-        self.animation_direction = 0
-        self.animation_duration = 180
-
-        self.cards = {}
+        self.files = []
 
         self.build_ui()
-
         self.position_center()
 
-        self.render()
+        # Scan the disk after the window is already on screen.
+        GLib.idle_add(self.load_files, priority=GLib.PRIORITY_DEFAULT_IDLE)
 
+    # -- ui ----------------------------------------------------------
 
     def build_ui(self):
-
         outer = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
-            spacing=10
+            spacing=0,
         )
 
-        outer.set_margin_top(16)
+        outer.set_margin_top(14)
         outer.set_margin_bottom(14)
-        outer.set_margin_start(18)
-        outer.set_margin_end(18)
+        outer.set_margin_start(14)
+        outer.set_margin_end(14)
 
-        self.add(
-            outer
-        )
+        self.add(outer)
 
-        # -------------------------
-        # Search
-        # -------------------------
+        self.carousel = Carousel(self.colors, self.apply_selected)
 
-        self.search = Gtk.Entry()
-
-        self.search.set_name(
-            "search"
-        )
-
-        self.search.set_placeholder_text(
-            "⌕   Search wallpapers"
-        )
-
-        # Make sure it starts completely empty
-        self.search.set_text("")
-
-        self.search.connect(
-            "changed",
-            self.filter
-        )
-
-        outer.pack_start(
-            self.search,
-            False,
-            False,
-            0
-        )
-
-        # -------------------------
-        # Carousel
-        # -------------------------
-
-        carousel_row = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=10
-        )
-
-        # No arrow buttons.
-        # The carousel is controlled with
-        # Left / Right keys and mouse clicks.
-
-        self.carousel = Gtk.Fixed()
-
-        self.carousel.set_name(
-            "carousel"
-        )
-
-        carousel_row.pack_start(
-            self.carousel,
-            True,
-            True,
-            0
-        )
-
-        outer.pack_start(
-            carousel_row,
-            True,
-            True,
-            0
-        )
-
+        outer.pack_start(self.carousel, True, True, 0)
 
     def position_center(self):
-
         screen = self.get_screen()
 
         monitor = screen.get_primary_monitor()
-
-        geo = screen.get_monitor_geometry(
-            monitor
-        )
+        geo = screen.get_monitor_geometry(monitor)
 
         self.move(
-            geo.x
-            + (geo.width - WINDOW_W) // 2,
-
-            geo.y
-            + (geo.height - WINDOW_H) // 2
+            geo.x + (geo.width - WINDOW_W) // 2,
+            geo.y + (geo.height - WINDOW_H) // 2,
         )
 
+    # -- files -------------------------------------------------------
 
-    # -------------------------------------------------
-    # Carousel geometry
-    # -------------------------------------------------
-
-    def slot_geometry(self, slot):
-
-        """
-        Five fixed carousel positions.
-
-             0       1        2        3       4
-
-           small   medium   SELECTED  medium   small
-        """
-
-        if slot == 0:
-
-            return (
-                5,
-                43,
-                115,
-                78
-            )
-
-        if slot == 1:
-
-            return (
-                125,
-                27,
-                155,
-                106
-            )
-
-        if slot == 2:
-
-            return (
-                285,
-                7,
-                250,
-                142
-            )
-
-        if slot == 3:
-
-            return (
-                545,
-                27,
-                155,
-                106
-            )
-
-        return (
-            705,
-            43,
-            115,
-            78
-        )
-
-
-    def index_for_slot(self, slot):
-
-        if not self.visible:
-
-            return None
-
-        offset = slot - 2
-
-        return (
-            self.selected + offset
-        ) % len(self.visible)
-
-
-    # -------------------------------------------------
-    # Build carousel
-    # -------------------------------------------------
-
-    def render(self):
-
-        for child in self.carousel.get_children():
-
-            self.carousel.remove(
-                child
-            )
-
-        self.cards.clear()
-
-        if not self.visible:
-
-            label = Gtk.Label(
-                label="No matching wallpapers"
-            )
-
-            label.set_name(
-                "empty"
-            )
-
-            self.carousel.put(
-                label,
-                300,
-                65
-            )
-
-            self.carousel.show_all()
-
-            return
-
-        for slot in range(5):
-
-            index = self.index_for_slot(
-                slot
-            )
-
-            if index is None:
-
-                continue
-
-            path = self.visible[
-                index
-            ]
-
-            card = WallpaperCard(
-                path,
-                self.card_clicked
-            )
-
-            self.cards[index] = card
-
-            x, y, w, h = (
-                self.slot_geometry(
-                    slot
-                )
-            )
-
-            card.set_geometry(
-                w,
-                h,
-                slot == 2
-            )
-
-            self.carousel.put(
-                card.event,
-                x,
-                y
-            )
-
-        self.carousel.show_all()
-
-
-    # -------------------------------------------------
-    # Animation
-    # -------------------------------------------------
-
-    def move_selection(self, direction):
-
-        if not self.visible:
-
-            return
-
-        if self.animating:
-
-            return
-
-        if len(self.visible) == 1:
-
-            return
-
-        self.animation_direction = direction
-
-        self.animation_start = (
-            GLib.get_monotonic_time()
-        )
-
-        self.animating = True
-
-        self.selected = (
-            self.selected + direction
-        ) % len(self.visible)
-
-        GLib.timeout_add(
-            16,
-            self.animate
-        )
-
-
-    def animate(self):
-
-        elapsed = (
-            GLib.get_monotonic_time()
-            - self.animation_start
-        ) / 1000.0
-
-        progress = min(
-            1.0,
-            elapsed / self.animation_duration
-        )
-
-        # Smooth ease-in-out
-        eased = (
-            3 * progress * progress
-            - 2
-            * progress
-            * progress
-            * progress
-        )
-
-        self.render_animation(
-            eased
-        )
-
-        if progress >= 1.0:
-
-            self.animating = False
-
-            self.render()
-
-            return False
-
-        return True
-
-
-    def render_animation(self, progress):
-
-        direction = (
-            self.animation_direction
-        )
-
-        for child in self.carousel.get_children():
-
-            self.carousel.remove(
-                child
-            )
-
-        self.cards.clear()
-
-        for old_slot in range(5):
-
-            old_index = (
-                self.selected
-                - direction
-                + (old_slot - 2)
-            ) % len(self.visible)
-
-            path = self.visible[
-                old_index
-            ]
-
-            card = WallpaperCard(
-                path,
-                self.card_clicked
-            )
-
-            self.cards[old_index] = card
-
-            new_slot = (
-                old_slot - direction
-            )
-
-            # Cards leaving the screen
-            if (
-                new_slot < 0
-                or new_slot > 4
-            ):
-
-                if direction > 0:
-
-                    x, y, w, h = (
-                        self.slot_geometry(0)
-                    )
-
-                    x -= 150
-
-                else:
-
-                    x, y, w, h = (
-                        self.slot_geometry(4)
-                    )
-
-                    x += 150
-
-                old_x, old_y, old_w, old_h = (
-                    self.slot_geometry(
-                        old_slot
-                    )
-                )
-
-                x = (
-                    old_x
-                    + (x - old_x)
-                    * progress
-                )
-
-                y = (
-                    old_y
-                    + (y - old_y)
-                    * progress
-                )
-
-                w = (
-                    old_w
-                    + (w - old_w)
-                    * progress
-                )
-
-                h = (
-                    old_h
-                    + (h - old_h)
-                    * progress
-                )
-
-                card.set_geometry(
-                    w,
-                    h,
-                    False
-                )
-
-                self.carousel.put(
-                    card.event,
-                    int(x),
-                    int(y)
-                )
-
-                continue
-
-            old_x, old_y, old_w, old_h = (
-                self.slot_geometry(
-                    old_slot
-                )
-            )
-
-            new_x, new_y, new_w, new_h = (
-                self.slot_geometry(
-                    new_slot
-                )
-            )
-
-            x = (
-                old_x
-                + (new_x - old_x)
-                * progress
-            )
-
-            y = (
-                old_y
-                + (new_y - old_y)
-                * progress
-            )
-
-            w = (
-                old_w
-                + (new_w - old_w)
-                * progress
-            )
-
-            h = (
-                old_h
-                + (new_h - old_h)
-                * progress
-            )
-
-            selected = (
-                new_slot == 2
-            )
-
-            card.set_geometry(
-                w,
-                h,
-                selected
-            )
-
-            self.carousel.put(
-                card.event,
-                int(x),
-                int(y)
-            )
-
-        self.carousel.show_all()
-
-
-    # -------------------------------------------------
-    # Mouse
-    # -------------------------------------------------
-
-    def card_clicked(
-        self,
-        widget,
-        event,
-        path
-    ):
-
-        if self.animating:
-
-            return True
+    def load_files(self):
+        files = []
 
         try:
+            for folder, dirs, names in os.walk(ROOT):
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
 
-            index = self.visible.index(
-                path
-            )
+                for name in names:
+                    if name.startswith("."):
+                        continue
 
-        except ValueError:
+                    if os.path.splitext(name)[1].lower() in EXTENSIONS:
+                        files.append(Path(folder) / name)
+        except Exception:
+            files = []
 
-            return True
+        files.sort(key=lambda p: p.name.lower())
 
-        current = self.selected
+        self.files = files
+        self.carousel.set_items(files)
 
-        if index == current:
+        return False
 
-            self.apply_selected()
-
-            return True
-
-        count = len(
-            self.visible
-        )
-
-        forward = (
-            index - current
-        ) % count
-
-        backward = (
-            current - index
-        ) % count
-
-        if forward <= backward:
-
-            direction = 1
-
-        else:
-
-            direction = -1
-
-        self.move_selection(
-            direction
-        )
-
-        return True
-
-
-    # -------------------------------------------------
-    # Search
-    # -------------------------------------------------
-
-    def filter(self, *_):
-
-        query = (
-            self.search
-            .get_text()
-            .lower()
-            .strip()
-        )
-
-        self.visible = [
-            path
-            for path in self.files
-            if query in path.name.lower()
-        ]
-
-        self.selected = 0
-
-        self.animating = False
-
-        self.render()
-
-
-    # -------------------------------------------------
-    # Apply
-    # -------------------------------------------------
+    # -- apply -------------------------------------------------------
 
     def apply_selected(self):
+        path = self.carousel.current()
 
-        if not self.visible:
-
+        if path is None:
             return
 
-        path = self.visible[
-            self.selected
-        ]
-
-        subprocess.Popen(
-            [
-                str(CTL),
-                "set",
-                str(path)
-            ]
-        )
+        try:
+            subprocess.Popen([str(CTL), "set", str(path)])
+        except Exception:
+            pass
 
         self.destroy()
 
-
-    # -------------------------------------------------
-    # Keyboard
-    # -------------------------------------------------
+    # -- keyboard ----------------------------------------------------
 
     def key(self, _, event):
-
         key = event.keyval
 
         if key == Gdk.KEY_Escape:
-
             self.destroy()
-
             return True
 
-        if key in (
-            Gdk.KEY_Return,
-            Gdk.KEY_KP_Enter
-        ):
-
+        if key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_space):
             self.apply_selected()
-
             return True
 
-        if key == Gdk.KEY_Left:
-
-            self.move_selection(-1)
-
+        if key in (Gdk.KEY_Left, Gdk.KEY_h, Gdk.KEY_k):
+            self.carousel.move(-1)
             return True
 
-        if key == Gdk.KEY_Right:
+        if key in (Gdk.KEY_Right, Gdk.KEY_l, Gdk.KEY_j):
+            self.carousel.move(1)
+            return True
 
-            self.move_selection(1)
+        if key in (Gdk.KEY_Page_Up,):
+            self.carousel.move(-5)
+            return True
 
+        if key in (Gdk.KEY_Page_Down,):
+            self.carousel.move(5)
+            return True
+
+        if key == Gdk.KEY_Home:
+            self.carousel.go_to(0)
+            return True
+
+        if key == Gdk.KEY_End:
+            self.carousel.go_to(len(self.carousel.items) - 1)
             return True
 
         return False
@@ -1058,23 +1072,29 @@ class Picker(Gtk.Window):
 # Start
 # ---------------------------------------------------------
 
-if __name__ == "__main__":
+def main():
+    colors = load_palette()
 
-    # Apply themed CSS before creating the picker
     provider = Gtk.CssProvider()
 
-    provider.load_from_data(
-        palette_css()
-    )
+    try:
+        provider.load_from_data(palette_css(colors))
+    except Exception:
+        pass
 
     Gtk.StyleContext.add_provider_for_screen(
         Gdk.Screen.get_default(),
         provider,
-        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
     )
 
-    win = Picker()
-
+    win = Picker(colors)
     win.show_all()
 
+    win.present()
+
     Gtk.main()
+
+
+if __name__ == "__main__":
+    main()
