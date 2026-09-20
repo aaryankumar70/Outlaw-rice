@@ -1,18 +1,22 @@
 * {
     font: "JetBrainsMono Nerd Font 12";
 
-    bg: {{colors.surface.default.rgba | set_alpha: 0.70}};
+    bg: {{colors.surface.default.rgba | set_alpha: 0.78}};
     bg-alt: {{colors.surface_container.default.rgba | set_alpha: 0.82}};
 
     fg: {{colors.on_surface.default.hex}};
     fg-dim: {{colors.on_surface_variant.default.hex}};
 
-    accent: {{colors.primary.default.hex}};
-    accent-soft: {{colors.primary.default.rgba | set_alpha: 0.16}};
+    accent: #85d2e7;
+    accent-soft: rgba(133, 210, 231, 0.16);
 
-    border: {{colors.primary.default.rgba | set_alpha: 0.60}};
-    border-soft: {{colors.outline.default.rgba | set_alpha: 0.30}};
+    border: rgba(133, 210, 231, 0.60);
+    border-soft: rgba(191, 200, 203, 0.30);
+
+    background-color: transparent;
+    text-color: @fg;
 }
+
 
 window {
     width: 340px;
@@ -23,87 +27,142 @@ window {
 
     border: 1px;
     border-color: @border;
+    border-radius: 16px;
 
-    border-radius: 17px;
-
-    padding: 9px;
+    padding: 8px;
 
     location: north;
-    y-offset: 44px;
+    y-offset: 42px;
 }
 
 mainbox {
-    background-color: transparent;
-
-    children: [
-        inputbar,
-        listview
-    ];
-
-    spacing: 7px;
+    children: [ inputbar, listview ];
+    spacing: 8px;
 }
+
+/* ---------------------------------------------------- */
+/* Input                                                 */
+/* ---------------------------------------------------- */
 
 inputbar {
     background-color: @bg-alt;
 
     border: 1px;
     border-color: @border-soft;
-
     border-radius: 10px;
 
-    padding: 8px 10px;
+    padding: 7px 10px;
+    spacing: 8px;
 
-    children: [
-        entry
-    ];
+    children: [ textbox-prompt-colon, entry ];
+}
+
+textbox-prompt-colon {
+    expand: false;
+
+    str: "󰂯";
+
+    text-color: @accent;
+    vertical-align: 0.5;
 }
 
 entry {
-    background-color: transparent;
-
     text-color: @fg;
+    vertical-align: 0.5;
 
-    placeholder: "Bluetooth devices...";
+    placeholder: "Search devices";
     placeholder-color: @fg-dim;
+
+    cursor: text;
 }
 
-listview {
-    background-color: transparent;
+/* ---------------------------------------------------- */
+/* List                                                  */
+/* ---------------------------------------------------- */
 
-    lines: 8;
+listview {
+    lines: 7;
     spacing: 2px;
 
+    fixed-height: false;
+    dynamic: true;
+
     scrollbar: false;
+    cycle: true;
 }
 
 element {
-    background-color: transparent;
-
     border-radius: 8px;
 
-    padding: 7px 9px;
+    padding: 7px 10px;
+    spacing: 9px;
+
+    cursor: pointer;
 }
 
-element normal {
+element normal.normal,
+element alternate.normal {
     background-color: transparent;
     text-color: @fg-dim;
 }
 
-element alternate {
+/* Paired or connected device */
+element normal.active,
+element alternate.active {
     background-color: transparent;
-    text-color: @fg-dim;
+    text-color: @accent;
 }
 
-element selected {
+element normal.urgent,
+element alternate.urgent {
+    background-color: transparent;
+    text-color: @fg;
+}
+
+element selected.normal,
+element selected.active,
+element selected.urgent {
     background-color: @accent-soft;
 
-    border: 1px;
-    border-color: @border;
+    /* Accent rail on the left rather than a full outline */
+    border: 0px 0px 0px 2px;
+    border-color: @accent;
+    border-radius: 8px;
 
     text-color: @fg;
 }
 
-element-text {
+element-icon {
+    size: 16px;
+    vertical-align: 0.5;
+
     background-color: transparent;
+}
+
+element-text {
     text-color: inherit;
+    vertical-align: 0.5;
+
+    background-color: transparent;
+}
+
+/* ---------------------------------------------------- */
+/* Messages (pairing prompts, errors)                    */
+/* ---------------------------------------------------- */
+
+message {
+    margin: 2px 0px 0px 0px;
+}
+
+textbox {
+    background-color: @bg-alt;
+
+    border: 1px;
+    border-color: @border-soft;
+    border-radius: 8px;
+
+    padding: 7px 10px;
+
+    text-color: @fg-dim;
+    vertical-align: 0.5;
 }
