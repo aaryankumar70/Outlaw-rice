@@ -606,8 +606,43 @@ hl.bind(
         mouse = true
     }
 )
+-- ---- KEYBOARD WINDOW RESIZE ----
 
+hl.bind(
+    mainMod .. " + CTRL + LEFT",
+    hl.dsp.window.resize({
+        x = -40,
+        y = 0,
+        relative = true
+    })
+)
 
+hl.bind(
+    mainMod .. " + CTRL + RIGHT",
+    hl.dsp.window.resize({
+        x = 40,
+        y = 0,
+        relative = true
+    })
+)
+
+hl.bind(
+    mainMod .. " + CTRL + UP",
+    hl.dsp.window.resize({
+        x = 0,
+        y = -40,
+        relative = true
+    })
+)
+
+hl.bind(
+    mainMod .. " + CTRL + DOWN",
+    hl.dsp.window.resize({
+        x = 0,
+        y = 40,
+        relative = true
+    })
+)
 ----------------------------
 ---- MULTIMEDIA CONTROLS ---
 ----------------------------
