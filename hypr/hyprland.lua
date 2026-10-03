@@ -431,6 +431,26 @@ hl.bind(
 )
 
 
+-- ---- SCREENSHOTS ----
+
+-- Print Screen = full screen
+hl.bind(
+    "PRINT",
+    hl.dsp.exec_cmd("grim ~/Pictures/Screenshots/screenshot-$(date +%Y-%m-%d_%H-%M-%S).png")
+)
+
+-- Super + Print Screen = select an area
+hl.bind(
+    mainMod .. " + PRINT",
+    hl.dsp.exec_cmd("sh -lc 'mkdir -p ~/Pictures/Screenshots && grim -g \"$(slurp)\" ~/Pictures/Screenshots/screenshot-$(date +%Y-%m-%d_%H-%M-%S).png'")
+)
+
+-- Super + Shift + Print Screen = active window
+hl.bind(
+    mainMod .. " + SHIFT + PRINT",
+    hl.dsp.exec_cmd("sh -lc 'mkdir -p ~/Pictures/Screenshots && grim -g \"$(hyprctl activewindow -j | jq -r \"\\.at[0],\\.at[1],\\.size[0],\\.size[1]\" | paste -sd, -)\" ~/Pictures/Screenshots/screenshot-$(date +%Y-%m-%d_%H-%M-%S).png'")
+)
+
 -- Toggle floating
 hl.bind(
     mainMod .. " + V",
